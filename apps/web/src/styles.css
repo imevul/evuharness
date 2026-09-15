@@ -1,0 +1,330 @@
+/*
+ * Demo styling.
+ *
+ * The kit ships structure and `data-harness` attributes rather than styles, so this
+ * file is what a host would write against its own design system. Kept minimal and
+ * intentionally unopinionated — it is a demo, not a theme to copy.
+ */
+
+:root {
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --line: #2b2f38;
+  --text: #e6e8ec;
+  --muted: #9aa1ad;
+  --accent: #6aa9ff;
+  --warn: #ffb86a;
+  --danger: #ff6a6a;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px / 1.5 ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+code,
+pre {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.sidebar ul {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.sidebar li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar li > button:first-child {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  border: none;
+  text-align: left;
+  padding: 6px 8px;
+}
+
+.sidebar li[data-active="true"] > button:first-child {
+  background: #23262e;
+  border-radius: 6px;
+}
+
+[data-harness="session-mode"] {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+[data-harness="session-live"] {
+  color: var(--accent);
+}
+
+.chat {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto auto;
+  min-height: 0;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-transcript {
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+[data-harness="transcript-row"] {
+  max-width: 70ch;
+}
+
+[data-harness="transcript-row"][data-kind="user"] {
+  align-self: flex-end;
+}
+
+[data-harness="transcript-row"][data-kind="system"] {
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+[data-harness="transcript-row"][data-cancelled="true"] {
+  opacity: 0.7;
+}
+
+/* Base bubble first, so specificity only climbs as the file goes on. */
+[data-harness="bubble"] {
+  white-space: pre-wrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+[data-harness="transcript-row"][data-kind="user"] [data-harness="bubble"] {
+  background: #223049;
+}
+
+[data-harness="transcript-row"][data-partial="true"] [data-harness="bubble"]::after {
+  content: "▍";
+  color: var(--accent);
+}
+
+[data-harness="phase"],
+[data-harness="reasoning"] {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+[data-harness="tool"] pre {
+  background: #0f1116;
+  border-radius: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  max-height: 240px;
+}
+
+.chat-gates {
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+[data-harness="gate"] {
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--panel);
+}
+
+[data-harness="gate"] h3 {
+  margin: 0 0 8px;
+}
+
+[data-harness="gate-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+[data-harness="gate-deny"] {
+  border-color: var(--danger);
+}
+
+[data-harness="ask-question"] {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+[data-harness="ask-choice"] {
+  display: block;
+}
+
+.chat-composer {
+  position: relative;
+  border-top: 1px solid var(--line);
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+}
+
+[data-harness="composer-input"] {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  background: var(--panel);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+[data-harness="composer-actions"] {
+  display: flex;
+  justify-content: space-between;
+}
+
+[data-harness="composer-chips"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-harness="chip"] {
+  background: #223049;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.85em;
+}
+
+/*
+ * Anchored above the composer rather than at the caret. Caret-tracking needs
+ * measurement the kit does not do, and for a demo the fixed position is honest
+ * about what is implemented.
+ */
+[data-harness="context-menu"] {
+  position: absolute;
+  bottom: calc(100% - 8px);
+  left: 16px;
+  right: 16px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+[data-harness="context-menu"] button {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  border: none;
+  text-align: left;
+  border-radius: 6px;
+}
+
+[data-harness="context-menu"] button[data-highlighted="true"] {
+  background: #23262e;
+}
+
+[data-harness="context-menu-hint"] {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+[data-harness="context-menu-chevron"] {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+[data-harness="context-menu-empty"],
+[data-harness="context-menu-loading"],
+[data-harness="context-menu-error"] {
+  padding: 6px 8px;
+  color: var(--muted);
+}
+
+.chat-usage {
+  display: flex;
+  gap: 16px;
+  padding: 6px 16px 12px;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.error,
+.warn {
+  color: var(--danger);
+  padding: 0 16px;
+}
+
+.warn {
+  color: var(--warn);
+  padding: 0;
+}
+
+.boot-error {
+  max-width: 60ch;
+  margin: 15vh auto;
+  padding: 0 16px;
+}

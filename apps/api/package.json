@@ -1,0 +1,29 @@
+{
+  "name": "@evu/harness-api",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "EvuHarness demo API: the harness runtime behind an HTTP/SSE server, with SQLite persistence.",
+  "type": "module",
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/refuse-publish.mjs",
+    "build": "tsc -b tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@evu/harness-core": "workspace:*",
+    "@evu/harness-protocol": "workspace:*",
+    "@evu/harness-server": "workspace:*",
+    "@evu/harness-sqlite": "workspace:*",
+    "@hono/node-server": "^1.14.4",
+    "hono": "^4.9.10"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

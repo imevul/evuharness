@@ -1,0 +1,10 @@
+packages:
+  - packages/*
+  - apps/*
+
+# Install scripts are opt-in per package. Each entry is a reviewed decision, and
+# an unreviewed dependency that wants to run a script fails the install rather
+# than silently executing.
+allowBuilds:
+  # Vite and Vitest bundler. Links its platform binary at install time.
+  esbuild: true

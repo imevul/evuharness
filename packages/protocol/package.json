@@ -1,0 +1,28 @@
+{
+  "name": "@evu/harness-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "EvuHarness wire contracts: sessions, stream events, gates, settings, and context menus.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/refuse-publish.mjs",
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  }
+}

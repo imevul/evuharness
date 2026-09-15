@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // Vite owns emit, so this project is typecheck-only and must not be composite:
+    // a composite project requires emit, and `tsc -b` would fight the bundler over
+    // output. It is therefore absent from the root tsconfig's references.
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["vite/client"],
+    /*
+     * Resolved to source, mirroring the Vite aliases in `vite.config.ts`.
+     *
+     * Two reasons this is not optional. Typechecking against `dist` would validate
+     * different code than the bundle actually contains, and it would make this app's
+     * typecheck depend on the packages having been built first — which silently
+     * degrades to `any` on a clean checkout instead of failing outright.
+     */
+    "paths": {
+      "@evu/harness-protocol": ["../../packages/protocol/src/index.ts"],
+      "@evu/harness-ui": ["../../packages/ui/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+}

@@ -1,0 +1,35 @@
+.git
+.github
+.gitignore
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/build
+coverage
+**/coverage
+.vite
+**/.vite
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Maintainer-only notes must never enter a build context.
+docs/internal
+
+# Secrets and local state
+.env
+.env.*
+!.env.example
+*.local
+data
+*.sqlite
+*.sqlite-*
+
+# Editor / OS junk
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "jsx": "react-jsx",
+    // Empty on purpose: this package ships to a browser bundle, so Node's globals
+    // must not be in scope. Without this, an accidental `node:crypto` import or a
+    // stray `process.env` typechecks here and fails only at bundle time in a
+    // consumer's build.
+    "types": []
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [{ "path": "../protocol" }]
+}

@@ -1,0 +1,19 @@
+{
+  "files": [],
+  /*
+   * `apps/web` is deliberately absent.
+   *
+   * A referenced project must be composite, and a composite project must emit — but
+   * Vite owns the web app's output. Its tsconfig is typecheck-only and resolves
+   * workspace packages through Vite aliases, so it is built by `pnpm --filter
+   * @evu/harness-web build` rather than by `tsc -b`.
+   */
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/core" },
+    { "path": "packages/sqlite" },
+    { "path": "packages/server" },
+    { "path": "packages/ui" },
+    { "path": "apps/api" }
+  ]
+}

@@ -1,0 +1,84 @@
+name: Release
+
+# GitHub Releases are the only release channel for this project.
+#
+# This workflow deliberately contains no registry step. Enabling one requires a
+# dedicated human approval gate: a separate job bound to a protected environment
+# with required reviewers. Do not add a registry step to this job.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build a release for
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.26.0"
+
+jobs:
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: pnpm run verify
+
+      # Tarballs are the registry-free consumption path: a consumer depends on a
+      # release asset URL, or on a local checkout.
+      - name: Pack workspace packages
+        run: |
+          mkdir -p dist-artifacts
+          for pkg in packages/*/; do
+            [ -f "$pkg/package.json" ] || continue
+            pnpm pack --pack-destination "$PWD/dist-artifacts" --dir "$pkg"
+          done
+          ls -l dist-artifacts
+
+      - name: Resolve tag
+        id: resolve
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-artifacts/* --clobber
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              dist-artifacts/*
+          fi

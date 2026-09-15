@@ -1,0 +1,26 @@
+# Identifiers that must never appear in the publishable tree.
+#
+# One extended-regex pattern per line; blank lines and `#` comments ignored.
+# Maintainer-only notes live under docs/internal/, which is gitignored and
+# therefore never scanned. If a scan fails, move the prose there rather than
+# rewording it here.
+#
+# Scope: this file guards against two classes of leak.
+#   1. Provenance — names of the private codebases this design drew from.
+#   2. Personal / homelab identifiers — operator names, host paths, LAN names.
+
+# --- Provenance: private sibling projects ---
+llamamgr
+evukb
+evunexus
+evuadw
+evuproxy
+evugraph
+02m8
+
+# --- Personal / homelab identifiers ---
+imevul
+\bjonas\b
+/home/
+xeonllm
+haxnet\.lan

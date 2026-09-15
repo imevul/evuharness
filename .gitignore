@@ -1,0 +1,41 @@
+# Maintainer-only notes. This directory is its own git repository so the notes
+# keep history and `git status` without ever entering the publishable tree.
+/docs/internal/
+
+# Secrets and local overrides — never commit
+.env
+.env.*
+!.env.example
+*.local
+
+# Local runtime state (SQLite stores, demo data)
+/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# Testing / tooling caches
+coverage/
+.vitest/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

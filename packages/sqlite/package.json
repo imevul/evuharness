@@ -1,0 +1,29 @@
+{
+  "name": "@evu/harness-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "EvuHarness durable session and grant stores backed by the Node built-in SQLite module.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/refuse-publish.mjs",
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@evu/harness-core": "workspace:*",
+    "@evu/harness-protocol": "workspace:*"
+  }
+}

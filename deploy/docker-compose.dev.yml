@@ -1,0 +1,55 @@
+services:
+  harness-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    command: pnpm --filter @evu/harness-api dev
+    environment:
+      TZ: ${TZ:-UTC}
+      EVUHARNESS_HOST: 0.0.0.0
+      EVUHARNESS_API_PORT: 4301
+      EVUHARNESS_LOG_LEVEL: ${EVUHARNESS_LOG_LEVEL:-info}
+      # SQLite lives on a named volume, so the dev stack needs no database service.
+      EVUHARNESS_STORE_PATH: /data/harness.sqlite
+      # Provider credentials are configuration, never baked into an image.
+      EVUHARNESS_PROVIDER_BASE_URL: ${EVUHARNESS_PROVIDER_BASE_URL:-}
+      EVUHARNESS_PROVIDER_API_KEY: ${EVUHARNESS_PROVIDER_API_KEY:-}
+      EVUHARNESS_PROVIDER_MODEL: ${EVUHARNESS_PROVIDER_MODEL:-}
+      # Demo-only shared token. Never an authentication scheme in production.
+      EVUHARNESS_DEV_TOKEN: ${EVUHARNESS_DEV_TOKEN:-}
+      EVUHARNESS_WEB_ORIGIN: http://localhost:4300
+    ports:
+      # Host 43xx range avoids sibling projects on 42xx.
+      - "4301:4301"
+    volumes:
+      - .:/workspace
+      - harness_data:/data
+      - /workspace/node_modules
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4301/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  harness-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: dev
+    command: pnpm --filter @evu/harness-web dev
+    depends_on:
+      harness-api:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-UTC}
+      VITE_EVUHARNESS_API_PROXY_TARGET: http://harness-api:4301
+    ports:
+      - "4300:4300"
+    volumes:
+      - .:/workspace
+      - /workspace/node_modules
+
+volumes:
+  harness_data:
