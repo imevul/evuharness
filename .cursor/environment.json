@@ -1,6 +1,6 @@
 {
   "name": "EvuHarness",
-  "install": "corepack pnpm install --frozen-lockfile",
+  "install": "corepack pnpm install --frozen-lockfile && corepack pnpm run build",
   "terminals": [
     {
       "name": "harness-api",
@@ -13,8 +13,5 @@
       "description": "Demo web app (Vite) on port 4300, proxying /api to the API on 4301."
     }
   ],
-  "ports": [
-    { "name": "web", "port": 4300 },
-    { "name": "api", "port": 4301 }
-  ]
+  "ports": [{ "name": "web", "port": 4300 }, { "name": "api", "port": 4301 }]
 }
