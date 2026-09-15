@@ -1,6 +1,7 @@
 import type {
   ChatModeId,
   ContextMenuDescriptor,
+  HarnessSettings,
   SessionSummary,
   StatusResponse,
 } from '@evu/harness-protocol';
@@ -8,9 +9,10 @@ import {
   Composer,
   GateStack,
   HarnessClient,
+  ProviderSettings,
   SessionSidebar,
+  StatusBar,
   Transcript,
-  UsageFooter,
   useHarnessSession,
 } from '@evu/harness-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -38,6 +40,7 @@ export function App() {
   const [menus, setMenus] = useState<ContextMenuDescriptor[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [screen, setScreen] = useState<'chat' | 'settings'>('chat');
   const [bootError, setBootError] = useState<string | null>(null);
 
   const refreshSessions = useCallback(async () => {
@@ -116,67 +119,147 @@ export function App() {
         className="sidebar"
         sessions={sessions}
         activeId={activeId}
-        onSelect={setActiveId}
+        onSelect={(id) => {
+          setActiveId(id);
+          setScreen('chat');
+        }}
         onCreate={() => void createSession()}
         onDelete={(id) => void deleteSession(id)}
       />
 
-      <main className="chat">
-        <header className="chat-header">
-          <span>{session.session?.title ?? 'No session'}</span>
-          {status !== null && !status.providerConfigured && (
-            <span className="warn">No provider configured</span>
-          )}
-        </header>
-
-        <Transcript className="chat-transcript" rows={session.transcript} turn={session.turn} />
-
-        {session.error !== null && <div className="error">{session.error}</div>}
-
-        {session.pending !== null && (
-          <GateStack
-            className="chat-gates"
-            pending={session.pending}
-            workspaceScoped={session.session?.workspaceId !== undefined}
-            onToolDecision={(approvalId, decision) => {
-              if (activeId !== null) {
-                void client.decideToolApproval(activeId, approvalId, { decision });
-              }
-            }}
-            onPlanDecision={(approve) => {
-              if (activeId === null) return;
-              void (approve ? client.approvePlan(activeId) : client.discardPlan(activeId));
-            }}
-            onModeSwitchDecision={(approve) => {
-              if (activeId !== null) void client.decideModeSwitch(activeId, { approve });
-            }}
-            onAskUserAnswer={(askId, answers) => {
-              if (activeId !== null) void client.answerAskUser(activeId, askId, { answers });
-            }}
-          />
-        )}
-
-        <Composer
-          className="chat-composer"
-          menus={menus}
-          fetchItems={fetchItems}
-          modes={modes}
-          mode={session.draftMode}
-          // Only the local draft changes here. Persisting the session default is a
-          // separate, explicit call, which is what keeps a mid-turn mode change from
-          // touching the turn.
-          onModeChange={session.setDraftMode}
-          onSend={(value) => void send(value)}
-          onCancel={() => void session.cancel()}
-          turnInProgress={session.turn !== null}
-          disabled={activeId === null}
-          placeholder={activeId === null ? 'Create a chat to begin' : 'Send a message…'}
+      {screen === 'settings' ? (
+        <SettingsScreen
+          client={client}
+          onBack={() => {
+            setScreen('chat');
+            void client.status().then(setStatus);
+          }}
         />
+      ) : (
+        <main className="chat">
+          <header className="chat-header">
+            <span>{session.session?.title ?? 'No session'}</span>
+            <span className="chat-header-actions">
+              {status !== null && !status.providerConfigured && (
+                <span className="warn">No provider configured</span>
+              )}
+              <button type="button" onClick={() => setScreen('settings')}>
+                Settings
+              </button>
+            </span>
+          </header>
 
-        {session.session !== null && (
-          <UsageFooter className="chat-usage" usage={session.session.usage} />
-        )}
-      </main>
+          <Transcript className="chat-transcript" rows={session.transcript} turn={session.turn} />
+
+          {session.error !== null && <div className="error">{session.error}</div>}
+
+          {session.pending !== null && (
+            <GateStack
+              className="chat-gates"
+              pending={session.pending}
+              workspaceScoped={session.session?.workspaceId !== undefined}
+              onToolDecision={(approvalId, decision) => {
+                if (activeId !== null) {
+                  void client.decideToolApproval(activeId, approvalId, { decision });
+                }
+              }}
+              onPlanDecision={(approve) => {
+                if (activeId === null) return;
+                void (approve ? client.approvePlan(activeId) : client.discardPlan(activeId));
+              }}
+              onModeSwitchDecision={(approve) => {
+                if (activeId !== null) void client.decideModeSwitch(activeId, { approve });
+              }}
+              onAskUserAnswer={(askId, answers) => {
+                if (activeId !== null) void client.answerAskUser(activeId, askId, { answers });
+              }}
+            />
+          )}
+
+          <Composer
+            className="chat-composer"
+            menus={menus}
+            fetchItems={fetchItems}
+            modes={modes}
+            mode={session.draftMode}
+            // Only the local draft changes here. Persisting the session default is a
+            // separate, explicit call, which is what keeps a mid-turn mode change from
+            // touching the turn.
+            onModeChange={session.setDraftMode}
+            onSend={(value) => void send(value)}
+            onCancel={() => void session.cancel()}
+            turnInProgress={session.turn !== null}
+            disabled={activeId === null}
+            placeholder={activeId === null ? 'Create a chat to begin' : 'Send a message…'}
+          />
+
+          <StatusBar
+            className="chat-status"
+            provider={status?.activeProvider ?? null}
+            usage={
+              session.session?.usage ?? {
+                promptTokensTotal: 0,
+                completionTokensTotal: 0,
+                lastPromptTokens: 0,
+              }
+            }
+          />
+        </main>
+      )}
     </div>
+  );
+}
+
+function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () => void }) {
+  const [settings, setSettings] = useState<HarnessSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void client
+      .getSettings()
+      .then(setSettings)
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+  }, [client]);
+
+  if (error !== null) {
+    return (
+      <main className="settings">
+        <header className="chat-header">
+          <button type="button" onClick={onBack}>
+            Back
+          </button>
+        </header>
+        <p className="error">{error}</p>
+      </main>
+    );
+  }
+
+  if (settings === null) {
+    return (
+      <main className="settings">
+        <p>Loading settings…</p>
+      </main>
+    );
+  }
+
+  return (
+    <main className="settings">
+      <header className="chat-header">
+        <span>Settings</span>
+        <button type="button" onClick={onBack}>
+          Back to chat
+        </button>
+      </header>
+      <ProviderSettings
+        settings={settings}
+        onChange={async (update) => {
+          setSettings(await client.updateSettings(update));
+        }}
+        onTest={async (providerId) => client.testConnection({ providerId })}
+        onListModels={async (providerId) => (await client.listModels({ providerId })).models}
+      />
+    </main>
   );
 }

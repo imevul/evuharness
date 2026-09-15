@@ -1,13 +1,18 @@
 import {
   ApprovalDecisionSchema,
+  ChatMessageSchema,
   ChatRequestSchema,
   ContextMenuDescriptorSchema,
   ContextMenuItemsResponseSchema,
   type ContextMenuNode,
   ContextMenuNodeSchema,
   GrantSchema,
+  HarnessSettingsUpdateSchema,
   isBuiltinToolName,
+  ProviderProfileSchema,
+  ProviderProfileWriteSchema,
   ROUTES,
+  StatusResponseSchema,
   StreamEventSchema,
 } from '@evu/harness-protocol';
 import { describe, expect, it } from 'vitest';
@@ -138,6 +143,81 @@ describe('chat request', () => {
   });
 });
 
+describe('chat message tool calls', () => {
+  it('round-trips an assistant tool call the provider will see', () => {
+    const parsed = ChatMessageSchema.parse({
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'c1', name: 'echo', arguments: { text: 'hi' } }],
+    });
+
+    expect(parsed.toolCalls).toEqual([{ id: 'c1', name: 'echo', arguments: { text: 'hi' } }]);
+  });
+});
+
+describe('provider write shape', () => {
+  it('accepts a write-only apiKey that the read shape cannot express', () => {
+    const written = ProviderProfileWriteSchema.parse({
+      id: 'local',
+      baseUrl: 'https://example.test/v1',
+      model: 'm',
+      apiKey: 'secret',
+    });
+
+    expect(written.apiKey).toBe('secret');
+    expect(ProviderProfileSchema.parse({ ...written, hasApiKey: true })).not.toHaveProperty(
+      'apiKey',
+    );
+  });
+
+  it('treats a null apiKey as an explicit clear, distinct from omit', () => {
+    const cleared = ProviderProfileWriteSchema.parse({
+      id: 'local',
+      baseUrl: 'https://example.test/v1',
+      model: 'm',
+      apiKey: null,
+    });
+    const omitted = ProviderProfileWriteSchema.parse({
+      id: 'local',
+      baseUrl: 'https://example.test/v1',
+      model: 'm',
+    });
+
+    expect(cleared.apiKey).toBeNull();
+    expect(omitted.apiKey).toBeUndefined();
+  });
+
+  it('accepts per-model context windows and a nullable write override', () => {
+    const profile = ProviderProfileSchema.parse({
+      id: 'local',
+      baseUrl: 'https://example.test/v1',
+      model: 'big',
+      modelContextWindows: { big: 32_768, small: 4_096 },
+      modelContextWindowOverrides: { big: 16_384 },
+    });
+
+    expect(profile.modelContextWindows.big).toBe(32_768);
+    expect(
+      ProviderProfileWriteSchema.parse({
+        id: 'local',
+        baseUrl: 'https://example.test/v1',
+        model: 'big',
+        modelContextWindowOverrides: { big: null },
+      }).modelContextWindowOverrides,
+    ).toEqual({ big: null });
+  });
+
+  it('upserts providers without requiring a full replace', () => {
+    const update = HarnessSettingsUpdateSchema.parse({
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'm' }],
+      removeProviderIds: ['old'],
+    });
+
+    expect(update.providers).toHaveLength(1);
+    expect(update.removeProviderIds).toEqual(['old']);
+  });
+});
+
 describe('approval ladder', () => {
   it('covers all five decisions', () => {
     expect(ApprovalDecisionSchema.options).toEqual([
@@ -190,6 +270,22 @@ describe('stream events', () => {
     expect(StreamEventSchema.parse({ event: 'reasoning_delta', text: 'hmm' })).toMatchObject({
       event: 'reasoning_delta',
     });
+  });
+});
+
+describe('status snapshot', () => {
+  it('carries a resolved activeProvider window', () => {
+    const status = StatusResponseSchema.parse({
+      ready: true,
+      modes: ['ask'],
+      activeProviderId: 'local',
+      activeProvider: { id: 'local', model: 'm', contextWindow: 8_192 },
+      providerConfigured: true,
+      toolCount: 0,
+      contextMenuCount: 0,
+    });
+
+    expect(status.activeProvider).toMatchObject({ model: 'm', contextWindow: 8_192 });
   });
 });
 

@@ -632,7 +632,7 @@ describe('harness integration', () => {
     });
 
     expect(harness.menuCatalog().map((entry) => entry.trigger)).toEqual(['@', '/']);
-    expect(harness.status().contextMenuCount).toBe(2);
+    expect((await harness.status()).contextMenuCount).toBe(2);
 
     const items = await harness.listMenuItems('mentions', { query: 'api' });
     expect(items.nodes.map((node) => node.id)).toEqual(['api']);

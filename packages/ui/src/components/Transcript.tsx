@@ -1,5 +1,6 @@
 import type { ToolEvent, TranscriptRow } from '@evu/harness-protocol';
 import type { LiveTurn } from '../hooks/use-harness-session.js';
+import { MarkdownView } from './MarkdownView.js';
 
 export interface TranscriptProps {
   rows: readonly TranscriptRow[];
@@ -66,7 +67,9 @@ function Row({ row }: { row: TranscriptRow }) {
         // biome-ignore lint/suspicious/noArrayIndexKey: fixed call sequence on a stored row
         <ToolRow key={`${tool.name}-${index}`} tool={tool} />
       ))}
-      <div data-harness="bubble">{row.text}</div>
+      <div data-harness="bubble">
+        <MarkdownView text={row.text} />
+      </div>
     </div>
   );
 }

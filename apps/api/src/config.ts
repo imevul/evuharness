@@ -25,6 +25,11 @@ export interface DemoConfig {
     model: string;
     apiKey: string | undefined;
   };
+  /**
+   * Use the in-process FakeProvider so `/chat` works without a live model.
+   * Env-seeded profiles still exist for the settings UI.
+   */
+  fakeProvider: boolean;
 }
 
 function requiredNumber(name: string, fallback: number): number {
@@ -57,5 +62,6 @@ export function loadConfig(): DemoConfig {
       model: optional('EVUHARNESS_PROVIDER_MODEL') ?? 'local-model',
       apiKey: optional('EVUHARNESS_PROVIDER_API_KEY'),
     },
+    fakeProvider: optional('EVUHARNESS_FAKE_PROVIDER') === '1',
   };
 }

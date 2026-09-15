@@ -11,9 +11,12 @@
 # Local runtime state (SQLite stores, demo data)
 /data/
 *.sqlite
+*.sqlite3
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
 
 # Node
 node_modules/

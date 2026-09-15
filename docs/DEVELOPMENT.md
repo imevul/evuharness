@@ -87,8 +87,9 @@ make down
 ```
 
 The compose stack builds two images from the repo root context and bind-mounts
-the workspace, so ordinary source edits do not require a rebuild. Rebuild when a
-`Dockerfile` or a dependency manifest changes.
+the workspace, so ordinary source edits do not require a rebuild. Each service
+runs `pnpm install` on start so a lockfile change updates the anonymous
+`node_modules` volume. Rebuild when a `Dockerfile` changes.
 
 | Service | Host port | Notes                          |
 | ------- | --------- | ------------------------------ |

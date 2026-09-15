@@ -24,6 +24,7 @@ fi
 # `:memory:` so a run leaves no file behind and cannot inherit state from the last one.
 EVUHARNESS_STORE_PATH=":memory:" \
 EVUHARNESS_API_PORT="${PORT}" \
+EVUHARNESS_FAKE_PROVIDER=1 \
   node apps/api/dist/main.js >/tmp/evuharness-smoke.log 2>&1 &
 API_PID=$!
 
@@ -83,6 +84,7 @@ check 'GET /health'                200 "${BASE}/health"
 check 'GET /api/health'            200 "${BASE}/api/health"
 check 'GET /api/status'            200 "${BASE}/api/status"
 contains 'status lists modes'      '"modes"'
+contains 'status has activeProvider' '"activeProvider"'
 
 check 'GET /api/tools'             200 "${BASE}/api/tools?mode=agent"
 check 'GET /api/tools bad mode'    400 "${BASE}/api/tools?mode=nope"
@@ -135,14 +137,36 @@ check 'POST set-mode'              200 -X POST "${BASE}/api/sessions/${SESSION_I
   -H 'content-type: application/json' --data "$(json '{"mode":"plan"}')"
 contains 'set-mode persisted'      '"mode":"plan"'
 
-# The turn loop is not built yet, so these must answer 501 rather than 404 or 500.
-check 'POST /api/chat'             501 -X POST "${BASE}/api/chat" \
+check 'PATCH /api/settings'        200 -X PATCH "${BASE}/api/settings" \
+  -H 'content-type: application/json' \
+  --data "$(json '{"providers":[{"id":"smoke","baseUrl":"https://example.test/v1","model":"m","apiKey":"smoke-secret"}]}')"
+contains 'settings upsert hasApiKey' '"hasApiKey":true'
+if grep -q 'smoke-secret' /tmp/evuharness-smoke-body || grep -q '"apiKey"' /tmp/evuharness-smoke-body; then
+  echo '  FAIL  PATCH /settings leaked a credential'
+  FAILED=1
+else
+  echo '  ok    PATCH /settings leaks no credential'
+fi
+
+check 'GET /api/settings after write' 200 "${BASE}/api/settings"
+if grep -q 'smoke-secret' /tmp/evuharness-smoke-body || grep -q '"apiKey"' /tmp/evuharness-smoke-body; then
+  echo '  FAIL  GET /settings leaked a credential'
+  FAILED=1
+else
+  echo '  ok    GET /settings leaks no credential'
+fi
+
+check 'POST /api/test'             200 -X POST "${BASE}/api/test" \
+  -H 'content-type: application/json' --data "$(json '{"providerId":"smoke"}')"
+contains 'test returns ok'         '"ok":'
+
+check 'POST /api/chat'             200 -X POST "${BASE}/api/chat" \
   -H 'content-type: application/json' \
   --data "$(json "{\"sessionId\":\"${SESSION_ID}\",\"mode\":\"agent\",\"messages\":[{\"text\":\"hi\"}]}")"
-check 'PATCH /api/settings'        501 -X PATCH "${BASE}/api/settings" \
-  -H 'content-type: application/json' --data "$(json '{}')"
-check 'POST /api/test'             501 -X POST "${BASE}/api/test" \
-  -H 'content-type: application/json' --data "$(json '{}')"
+contains 'chat streams done'       '"event":"done"'
+
+check 'POST /api/cancel'           204 -X POST "${BASE}/api/sessions/${SESSION_ID}/cancel" \
+  -H 'content-type: application/json' --data "$(json '{"reason":"operator"}')"
 
 check 'DELETE /api/sessions/:id'   204 -X DELETE "${BASE}/api/sessions/${SESSION_ID}"
 check 'GET deleted session'        404 "${BASE}/api/sessions/${SESSION_ID}"

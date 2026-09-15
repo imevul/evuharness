@@ -2,11 +2,18 @@ import {
   applyTurnPatch,
   createSessionRecord,
   digestToolCall,
+  emptyStoredSettings,
   grantForDecision,
   resolveGrant,
   setSessionMode,
+  storedFromInput,
 } from '@evu/harness-core';
-import { openDatabase, SqliteGrantStore, SqliteSessionStore } from '@evu/harness-sqlite';
+import {
+  openDatabase,
+  SqliteGrantStore,
+  SqliteSessionStore,
+  SqliteSettingsStore,
+} from '@evu/harness-sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const TOOL = 'restart_service';
@@ -382,5 +389,33 @@ describe('grant semantics parity', () => {
     await expect(
       resolveGrant(grants, { sessionId: SESSION, tool: 'delete_everything', digest: otherDigest }),
     ).resolves.toEqual({ allowed: false });
+  });
+});
+
+describe('settings persistence', () => {
+  it('round-trips a provider including the secret, and survives a reopen', async () => {
+    const settings = new SqliteSettingsStore({ db });
+    const stored = emptyStoredSettings();
+    stored.providers = [
+      storedFromInput({
+        id: 'local',
+        baseUrl: 'https://example.test/v1',
+        model: 'm',
+        apiKey: 'keep-me',
+      }),
+    ];
+    stored.activeProviderId = 'local';
+
+    await settings.put(stored);
+    const loaded = await settings.get();
+    expect(loaded.providers[0]?.apiKey).toBe('keep-me');
+
+    const again = new SqliteSettingsStore({ db });
+    expect((await again.get()).providers[0]?.apiKey).toBe('keep-me');
+  });
+
+  it('returns empty settings when nothing has been written', async () => {
+    const settings = new SqliteSettingsStore({ db });
+    expect(await settings.get()).toEqual(emptyStoredSettings());
   });
 });

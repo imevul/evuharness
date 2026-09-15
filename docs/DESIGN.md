@@ -19,12 +19,26 @@ affordances. Silence is a bug.
 
 Exported components fall into three tiers:
 
-1. **Primitives** — transcript rows, chips, the menu popup. No data fetching.
+1. **Primitives** — transcript rows, chips, the menu popup, the markdown
+   renderer. No data fetching.
 2. **Bound components** — composer, transcript, session list. These take a client
    plus callbacks; they do not own routing or global state.
 3. **Assemblies** — a full chat surface for hosts that want the default.
 
+The markdown renderer is a primitive the transcript uses, not a second page.
+Completed rows go through it. The live streaming bubble stays plain text so a
+half-closed fence does not flash a broken diagram on every token.
+
+The status bar is tier-2: it takes protocol-shaped props (the public active
+provider snapshot, `SessionUsage`, and the resolved max tokens). It does not
+fetch. Context hover is a custom tooltip, not the browser `title` attribute, so
+later lines can be added without fighting native tooltip limits.
+
 A host mounting an assembly must be able to swap any tier-2 piece inside it.
+
+Numeric fields that accept large values use k-notation. The person can type a
+suffix; blur and save convert it to the expanded integer so the stored value
+and the field agree. Invalid text is left as typed and is not written.
 
 ## Context menus
 

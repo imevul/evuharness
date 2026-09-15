@@ -9,3 +9,4 @@
 export * from './grant-store.js';
 export * from './schema.js';
 export * from './session-store.js';
+export * from './settings-store.js';

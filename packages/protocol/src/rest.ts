@@ -119,10 +119,21 @@ export const HealthResponseSchema = z.object({
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
+export const ActiveProviderSnapshotSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().optional(),
+  model: z.string().min(1),
+  /** Resolved max for `model`: override ?? catalog. Omitted when unknown. */
+  contextWindow: z.number().int().positive().optional(),
+});
+export type ActiveProviderSnapshot = z.infer<typeof ActiveProviderSnapshotSchema>;
+
 export const StatusResponseSchema = z.object({
   ready: z.boolean(),
   modes: z.array(ChatModeIdSchema),
   activeProviderId: z.string().nullable(),
+  /** Public snapshot of the active profile and the resolved window for its model. */
+  activeProvider: ActiveProviderSnapshotSchema.nullable().default(null),
   providerConfigured: z.boolean(),
   toolCount: z.number().int().nonnegative(),
   contextMenuCount: z.number().int().nonnegative(),

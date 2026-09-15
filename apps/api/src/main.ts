@@ -1,8 +1,13 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { createHarness } from '@evu/harness-core';
+import { createHarness, FakeProvider } from '@evu/harness-core';
 import { createHarnessRouter } from '@evu/harness-server';
-import { openDatabase, SqliteGrantStore, SqliteSessionStore } from '@evu/harness-sqlite';
+import {
+  openDatabase,
+  SqliteGrantStore,
+  SqliteSessionStore,
+  SqliteSettingsStore,
+} from '@evu/harness-sqlite';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -35,6 +40,8 @@ async function main(): Promise<void> {
   const harness = createHarness({
     store: new SqliteSessionStore({ db }),
     grants: new SqliteGrantStore({ db }),
+    settings: new SqliteSettingsStore({ db }),
+    ...(config.fakeProvider ? { provider: new FakeProvider() } : {}),
     tools: demoTools(),
     contextMenus: demoMenus(),
     providers: [
@@ -46,6 +53,12 @@ async function main(): Promise<void> {
         ...(config.provider.apiKey === undefined ? {} : { apiKey: config.provider.apiKey }),
         supportsEffort: true,
         supportsReasoning: true,
+        ...(config.fakeProvider
+          ? {
+              models: [config.provider.model],
+              modelContextWindows: { [config.provider.model]: 8_192 },
+            }
+          : {}),
       },
     ],
     prompts: {
@@ -83,6 +96,9 @@ async function main(): Promise<void> {
     console.info(`evuharness demo api listening on http://${config.host}:${info.port}`);
     console.info(`  auth: ${config.token === undefined ? 'disabled' : 'shared token'}`);
     console.info(`  store: ${config.databasePath}`);
+    if (config.fakeProvider) {
+      console.info('  provider: fake (EVUHARNESS_FAKE_PROVIDER=1)');
+    }
   });
 
   // Without this, a container stop waits out the full grace period on every restart.

@@ -1,6 +1,7 @@
 import {
   createHarness,
   createSessionRecord,
+  FakeProvider,
   InMemorySessionStore,
   mergeIntoLeadingSystemMessage,
   titleFromMessage,
@@ -16,8 +17,8 @@ function harness(overrides: Parameters<typeof createHarness>[0] = {}) {
 }
 
 describe('createHarness defaults', () => {
-  it('reports status without configuration', () => {
-    expect(harness().status()).toMatchObject({
+  it('reports status without configuration', async () => {
+    expect(await harness().status()).toMatchObject({
       ready: true,
       modes: ['ask', 'plan', 'agent'],
       activeProviderId: null,
@@ -27,27 +28,28 @@ describe('createHarness defaults', () => {
     });
   });
 
-  it('never exposes a provider credential, only whether one exists', () => {
+  it('never exposes a provider credential, only whether one exists', async () => {
     const configured = harness({
       providers: [
         { id: 'main', baseUrl: 'https://example.test/v1', model: 'a-model', apiKey: 'secret' },
       ],
     });
-    const [provider] = configured.providers;
+    const settings = await configured.getSettings();
+    const [provider] = settings.providers;
 
     expect(provider).toMatchObject({ id: 'main', hasApiKey: true });
-    expect(JSON.stringify(configured.providers)).not.toContain('secret');
+    expect(JSON.stringify(settings)).not.toContain('secret');
   });
 
-  it('reports hasApiKey false for an empty credential', () => {
+  it('reports hasApiKey false for an empty credential', async () => {
     const configured = harness({
       providers: [{ id: 'main', baseUrl: 'https://example.test/v1', model: 'm', apiKey: '' }],
     });
 
-    expect(configured.providers[0]?.hasApiKey).toBe(false);
+    expect((await configured.getSettings()).providers[0]?.hasApiKey).toBe(false);
   });
 
-  it('defaults the active provider to the first one', () => {
+  it('defaults the active provider to the first one', async () => {
     const configured = harness({
       providers: [
         { id: 'first', baseUrl: 'https://a.test/v1', model: 'm' },
@@ -55,7 +57,49 @@ describe('createHarness defaults', () => {
       ],
     });
 
-    expect(configured.activeProviderId).toBe('first');
+    expect((await configured.status()).activeProviderId).toBe('first');
+    expect((await configured.status()).activeProvider).toMatchObject({
+      id: 'first',
+      model: 'm',
+    });
+  });
+
+  it('resolves activeProvider.contextWindow per model, with override winning', async () => {
+    const configured = harness({
+      providers: [
+        {
+          id: 'local',
+          baseUrl: 'https://example.test/v1',
+          model: 'a',
+          modelContextWindows: { a: 8_192, b: 4_096 },
+          modelContextWindowOverrides: { a: 2_048 },
+        },
+      ],
+    });
+
+    expect((await configured.status()).activeProvider?.contextWindow).toBe(2_048);
+
+    await configured.updateSettings({
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'b' }],
+    });
+    expect((await configured.status()).activeProvider).toMatchObject({
+      model: 'b',
+      contextWindow: 4_096,
+    });
+  });
+
+  it('persists catalog windows per model when listing', async () => {
+    const configured = harness({
+      provider: new FakeProvider(),
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'fake-model' }],
+    });
+
+    const listed = await configured.listModels();
+    expect(listed.models).toEqual([{ id: 'fake-model', contextWindow: 8_192 }]);
+    expect((await configured.getSettings()).providers[0]?.modelContextWindows).toEqual({
+      'fake-model': 8_192,
+    });
+    expect((await configured.status()).activeProvider?.contextWindow).toBe(8_192);
   });
 
   it('rejects an unknown activeProviderId', () => {

@@ -1,0 +1,236 @@
+import type {
+  HarnessSettings,
+  HarnessSettingsUpdate,
+  PolicySettings,
+  PromptSettings,
+  ProviderProfile,
+  ProviderProfileWrite,
+} from '@evu/harness-protocol';
+import { ProviderProfileSchema } from '@evu/harness-protocol';
+import { compactOverrideMap } from './model-catalog.js';
+
+export interface ProviderProfileInput {
+  id: string;
+  baseUrl: string;
+  model: string;
+  label?: string;
+  apiKey?: string;
+  models?: string[];
+  supportsEffort?: boolean;
+  supportsReasoning?: boolean;
+  timeoutMs?: number;
+  modelContextWindows?: Record<string, number>;
+  modelContextWindowOverrides?: Record<string, number>;
+}
+
+/**
+ * A provider as stored, including the credential.
+ *
+ * This type never crosses a network boundary. `toPublicProvider` is the only
+ * conversion out, and it cannot express `apiKey`.
+ */
+export interface StoredProviderProfile {
+  id: string;
+  label?: string | undefined;
+  baseUrl: string;
+  model: string;
+  apiKey?: string | undefined;
+  models: string[];
+  supportsEffort: boolean;
+  supportsReasoning: boolean;
+  timeoutMs: number;
+  modelContextWindows: Record<string, number>;
+  modelContextWindowOverrides: Record<string, number>;
+}
+
+export interface StoredSettings {
+  providers: StoredProviderProfile[];
+  activeProviderId: string | null;
+  prompts: PromptSettings;
+  policies: Pick<PolicySettings, 'askUserEnabled' | 'maxToolRounds'>;
+}
+
+export interface SettingsStore {
+  get(): Promise<StoredSettings>;
+  put(settings: StoredSettings): Promise<void>;
+}
+
+export function emptyStoredSettings(): StoredSettings {
+  return {
+    providers: [],
+    activeProviderId: null,
+    prompts: { global: '', perMode: {} },
+    policies: { askUserEnabled: true, maxToolRounds: 12 },
+  };
+}
+
+export function storedFromInput(input: ProviderProfileInput): StoredProviderProfile {
+  return {
+    id: input.id,
+    ...(input.label === undefined ? {} : { label: input.label }),
+    baseUrl: input.baseUrl,
+    model: input.model,
+    ...(input.apiKey === undefined || input.apiKey === '' ? {} : { apiKey: input.apiKey }),
+    models: input.models ?? [],
+    supportsEffort: input.supportsEffort ?? false,
+    supportsReasoning: input.supportsReasoning ?? false,
+    timeoutMs: input.timeoutMs ?? 120_000,
+    modelContextWindows: input.modelContextWindows ?? {},
+    modelContextWindowOverrides: input.modelContextWindowOverrides ?? {},
+  };
+}
+
+/**
+ * The public profile: whether a key exists, never the key.
+ *
+ * Derived rather than redacted, so a missed strip cannot leak a credential.
+ */
+export function toPublicProvider(stored: StoredProviderProfile): ProviderProfile {
+  return ProviderProfileSchema.parse({
+    id: stored.id,
+    ...(stored.label === undefined ? {} : { label: stored.label }),
+    baseUrl: stored.baseUrl,
+    model: stored.model,
+    hasApiKey: stored.apiKey !== undefined && stored.apiKey !== '',
+    models: stored.models,
+    supportsEffort: stored.supportsEffort,
+    supportsReasoning: stored.supportsReasoning,
+    timeoutMs: stored.timeoutMs,
+    modelContextWindows: stored.modelContextWindows ?? {},
+    modelContextWindowOverrides: stored.modelContextWindowOverrides ?? {},
+  });
+}
+
+export function toPublicSettings(
+  stored: StoredSettings,
+  extras: { modes: string[]; toolApprovals: PolicySettings['toolApprovals'] },
+): HarnessSettings {
+  return {
+    providers: stored.providers.map(toPublicProvider),
+    activeProviderId: stored.activeProviderId,
+    prompts: stored.prompts,
+    policies: {
+      toolApprovals: extras.toolApprovals,
+      askUserEnabled: stored.policies.askUserEnabled,
+      maxToolRounds: stored.policies.maxToolRounds,
+    },
+    modes: extras.modes,
+  };
+}
+
+function upsertProvider(
+  current: StoredProviderProfile | undefined,
+  write: ProviderProfileWrite,
+): StoredProviderProfile {
+  const created: StoredProviderProfile = {
+    id: write.id,
+    baseUrl: write.baseUrl,
+    model: write.model,
+    models: [],
+    supportsEffort: false,
+    supportsReasoning: false,
+    timeoutMs: 120_000,
+    modelContextWindows: {},
+    modelContextWindowOverrides: {},
+  };
+  const base: StoredProviderProfile = {
+    ...(current ?? created),
+    modelContextWindows: current?.modelContextWindows ?? {},
+    modelContextWindowOverrides: current?.modelContextWindowOverrides ?? {},
+  };
+
+  const next: StoredProviderProfile = {
+    ...base,
+    baseUrl: write.baseUrl,
+    model: write.model,
+    ...(write.label === undefined ? {} : { label: write.label }),
+    models: write.models ?? base.models,
+    supportsEffort: write.supportsEffort ?? base.supportsEffort,
+    supportsReasoning: write.supportsReasoning ?? base.supportsReasoning,
+    timeoutMs: write.timeoutMs ?? base.timeoutMs,
+    modelContextWindows: write.modelContextWindows ?? base.modelContextWindows,
+    modelContextWindowOverrides:
+      write.modelContextWindowOverrides === undefined
+        ? base.modelContextWindowOverrides
+        : compactOverrideMap(write.modelContextWindowOverrides),
+  };
+
+  if (write.apiKey === undefined) {
+    return next;
+  }
+  if (write.apiKey === null || write.apiKey === '') {
+    const { apiKey: _cleared, ...rest } = next;
+    return rest;
+  }
+  return { ...next, apiKey: write.apiKey };
+}
+
+/**
+ * Apply a partial settings update.
+ *
+ * Providers are upserted by id. Removals are explicit. The active id is checked
+ * against the post-update set so a tab cannot point at a profile that no longer
+ * exists, including one it just deleted.
+ */
+export function applySettingsUpdate(
+  current: StoredSettings,
+  update: HarnessSettingsUpdate,
+): StoredSettings {
+  const byId = new Map(current.providers.map((provider) => [provider.id, provider]));
+
+  for (const id of update.removeProviderIds ?? []) {
+    byId.delete(id);
+  }
+  for (const write of update.providers ?? []) {
+    byId.set(write.id, upsertProvider(byId.get(write.id), write));
+  }
+
+  const providers = [...byId.values()];
+  const providerIds = new Set(providers.map((provider) => provider.id));
+
+  let activeProviderId = current.activeProviderId;
+  if (update.activeProviderId !== undefined) {
+    activeProviderId = update.activeProviderId;
+    if (activeProviderId !== null && !providerIds.has(activeProviderId)) {
+      throw new Error(`Unknown activeProviderId: ${activeProviderId}`);
+    }
+  } else if (activeProviderId !== null && !providerIds.has(activeProviderId)) {
+    // The active profile was removed in this update. Repoint rather than
+    // rejecting — a delete that names only the id must not require the client
+    // to also send a new active id.
+    activeProviderId = providers[0]?.id ?? null;
+  } else if (activeProviderId === null && providers.length > 0) {
+    // First upsert that forgot to set active: default to the first remaining id
+    // so a UI that adds one profile does not leave the harness with nowhere to send.
+    activeProviderId = providers[0]?.id ?? null;
+  }
+
+  return {
+    providers,
+    activeProviderId,
+    prompts: {
+      global: update.prompts?.global ?? current.prompts.global,
+      perMode: { ...current.prompts.perMode, ...update.prompts?.perMode },
+    },
+    policies: {
+      askUserEnabled: update.policies?.askUserEnabled ?? current.policies.askUserEnabled,
+      maxToolRounds: update.policies?.maxToolRounds ?? current.policies.maxToolRounds,
+    },
+  };
+}
+
+export class InMemorySettingsStore implements SettingsStore {
+  private settings: StoredSettings;
+
+  constructor(initial: StoredSettings = emptyStoredSettings()) {
+    this.settings = structuredClone(initial);
+  }
+
+  async get(): Promise<StoredSettings> {
+    return structuredClone(this.settings);
+  }
+
+  async put(settings: StoredSettings): Promise<void> {
+    this.settings = structuredClone(settings);
+  }
+}

@@ -4,8 +4,11 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
       target: dev
-    command: pnpm --filter @evu/harness-api dev
+    command: sh -c "pnpm install --frozen-lockfile && pnpm --filter @evu/harness-api dev"
     environment:
+      # Compose has no TTY. Without this, pnpm aborts when it needs to replace
+      # the anonymous node_modules volume after a lockfile change.
+      CI: "true"
       TZ: ${TZ:-UTC}
       EVUHARNESS_HOST: 0.0.0.0
       EVUHARNESS_API_PORT: 4301
@@ -38,11 +41,12 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       target: dev
-    command: pnpm --filter @evu/harness-web dev
+    command: sh -c "pnpm install --frozen-lockfile && pnpm --filter @evu/harness-web dev"
     depends_on:
       harness-api:
         condition: service_healthy
     environment:
+      CI: "true"
       TZ: ${TZ:-UTC}
       VITE_EVUHARNESS_API_PROXY_TARGET: http://harness-api:4301
     ports:

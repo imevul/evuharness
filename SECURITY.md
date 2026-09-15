@@ -68,7 +68,8 @@ model will read.
 - Prompt-injection resistance is a defense-in-depth goal, not a guarantee. The
   approval gate is the real control: assume a sufficiently adversarial document
   can make the model *attempt* an action, and rely on approvals to stop it.
-- Sanitize markdown before rendering it in a UI.
+- Sanitize markdown before rendering it in a UI. Mermaid diagrams render with a
+  strict, no-click config so labels in a fence cannot become script.
 
 ## Filesystem and path handling
 

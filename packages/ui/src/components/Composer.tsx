@@ -164,19 +164,21 @@ export function Composer(props: ComposerProps) {
         // Caret position is read from the element on every change and click, since
         // trigger detection is caret-relative: the same text means different things
         // depending on where the cursor sits.
-        onChange={(event) =>
-          setValue((current) => ({
-            ...current,
-            text: event.target.value,
-            caret: event.target.selectionStart,
-          }))
-        }
-        onClick={(event) =>
-          setValue((current) => ({ ...current, caret: event.currentTarget.selectionStart }))
-        }
-        onKeyUp={(event) =>
-          setValue((current) => ({ ...current, caret: event.currentTarget.selectionStart }))
-        }
+        onChange={(event) => {
+          // Read before setState: React nulls `currentTarget` after the listener
+          // returns, and a functional updater runs later.
+          const text = event.currentTarget.value;
+          const caret = event.currentTarget.selectionStart;
+          setValue((current) => ({ ...current, text, caret }));
+        }}
+        onClick={(event) => {
+          const caret = event.currentTarget.selectionStart;
+          setValue((current) => ({ ...current, caret }));
+        }}
+        onKeyUp={(event) => {
+          const caret = event.currentTarget.selectionStart;
+          setValue((current) => ({ ...current, caret }));
+        }}
       />
 
       <div data-harness="composer-actions">

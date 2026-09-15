@@ -1,0 +1,158 @@
+import {
+  applySettingsUpdate,
+  createHarness,
+  emptyStoredSettings,
+  storedFromInput,
+  toPublicProvider,
+} from '@evu/harness-core';
+import { describe, expect, it } from 'vitest';
+
+const LOCAL = storedFromInput({
+  id: 'local',
+  baseUrl: 'https://example.test/v1',
+  model: 'm',
+  apiKey: 'secret',
+});
+
+describe('toPublicProvider', () => {
+  it('derives hasApiKey and cannot express the secret', () => {
+    const publicProfile = toPublicProvider(LOCAL);
+
+    expect(publicProfile.hasApiKey).toBe(true);
+    expect(publicProfile).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(publicProfile)).not.toContain('secret');
+  });
+});
+
+describe('applySettingsUpdate', () => {
+  it('upserts by id without replacing unrelated profiles', () => {
+    const current = emptyStoredSettings();
+    current.providers = [LOCAL];
+
+    const next = applySettingsUpdate(current, {
+      providers: [{ id: 'cloud', baseUrl: 'https://cloud.test/v1', model: 'big' }],
+    });
+
+    expect(next.providers.map((p) => p.id)).toEqual(['local', 'cloud']);
+    expect(next.providers[0]?.apiKey).toBe('secret');
+  });
+
+  it('leaves an omitted apiKey unchanged and clears on null', () => {
+    const current = emptyStoredSettings();
+    current.providers = [LOCAL];
+
+    const kept = applySettingsUpdate(current, {
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'm2' }],
+    });
+    expect(kept.providers[0]).toMatchObject({ model: 'm2', apiKey: 'secret' });
+
+    const cleared = applySettingsUpdate(kept, {
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'm2', apiKey: null }],
+    });
+    expect(cleared.providers[0]?.apiKey).toBeUndefined();
+  });
+
+  it('removes only the named ids', () => {
+    const current = emptyStoredSettings();
+    current.providers = [
+      LOCAL,
+      storedFromInput({ id: 'other', baseUrl: 'https://b.test/v1', model: 'n' }),
+    ];
+    current.activeProviderId = 'local';
+
+    const next = applySettingsUpdate(current, { removeProviderIds: ['other'] });
+
+    expect(next.providers.map((p) => p.id)).toEqual(['local']);
+    expect(next.activeProviderId).toBe('local');
+  });
+
+  it('rejects an active id that is not in the store after the update', () => {
+    expect(() =>
+      applySettingsUpdate(emptyStoredSettings(), { activeProviderId: 'missing' }),
+    ).toThrow(/Unknown activeProviderId/);
+  });
+
+  it('defaults active to the first profile when adding the first one', () => {
+    const next = applySettingsUpdate(emptyStoredSettings(), {
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'm' }],
+    });
+
+    expect(next.activeProviderId).toBe('local');
+  });
+
+  it('repoints active when the current profile is removed', () => {
+    const current = emptyStoredSettings();
+    current.providers = [
+      LOCAL,
+      storedFromInput({ id: 'other', baseUrl: 'https://b.test/v1', model: 'n' }),
+    ];
+    current.activeProviderId = 'local';
+
+    const next = applySettingsUpdate(current, { removeProviderIds: ['local'] });
+
+    expect(next.activeProviderId).toBe('other');
+  });
+
+  it('replaces per-model overrides when sent and leaves them when omitted', () => {
+    const current = emptyStoredSettings();
+    current.providers = [
+      storedFromInput({
+        id: 'local',
+        baseUrl: 'https://example.test/v1',
+        model: 'a',
+        modelContextWindows: { a: 8_192, b: 4_096 },
+        modelContextWindowOverrides: { a: 2_048 },
+      }),
+    ];
+
+    const left = applySettingsUpdate(current, {
+      providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'b' }],
+    });
+    expect(left.providers[0]?.modelContextWindowOverrides).toEqual({ a: 2_048 });
+    expect(left.providers[0]?.modelContextWindows).toEqual({ a: 8_192, b: 4_096 });
+
+    const cleared = applySettingsUpdate(left, {
+      providers: [
+        {
+          id: 'local',
+          baseUrl: 'https://example.test/v1',
+          model: 'b',
+          modelContextWindowOverrides: { a: null, b: 1_024 },
+        },
+      ],
+    });
+    expect(cleared.providers[0]?.modelContextWindowOverrides).toEqual({ b: 1_024 });
+  });
+});
+
+describe('createHarness settings', () => {
+  it('seeds once, then the store wins over config.providers', async () => {
+    const runtime = createHarness({
+      providers: [
+        { id: 'env', baseUrl: 'https://env.test/v1', model: 'env-model', apiKey: 'from-env' },
+      ],
+    });
+
+    await runtime.updateSettings({
+      providers: [{ id: 'env', baseUrl: 'https://ui.test/v1', model: 'ui-model' }],
+    });
+
+    const settings = await runtime.getSettings();
+    expect(settings.providers[0]).toMatchObject({
+      baseUrl: 'https://ui.test/v1',
+      model: 'ui-model',
+      hasApiKey: true,
+    });
+    expect(JSON.stringify(settings)).not.toContain('from-env');
+  });
+
+  it('returns the secret only through getStoredProvider', async () => {
+    const runtime = createHarness({
+      providers: [{ id: 'env', baseUrl: 'https://env.test/v1', model: 'm', apiKey: 'from-env' }],
+    });
+
+    const stored = await runtime.getStoredProvider();
+    expect(stored?.apiKey).toBe('from-env');
+    expect(JSON.stringify(await runtime.getSettings())).not.toContain('from-env');
+  });
+});

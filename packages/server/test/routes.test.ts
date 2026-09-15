@@ -1,4 +1,10 @@
-import { commandsMenu, createHarness, type Harness, mentionsMenu } from '@evu/harness-core';
+import {
+  commandsMenu,
+  createHarness,
+  FakeProvider,
+  type Harness,
+  mentionsMenu,
+} from '@evu/harness-core';
 import { type Actor, CAPABILITIES, createHarnessRouter } from '@evu/harness-server';
 import type { Hono } from 'hono';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -70,6 +76,7 @@ describe('health and status', () => {
     expect(await response.json()).toMatchObject({
       ready: true,
       modes: ['ask', 'plan', 'agent'],
+      activeProvider: null,
       toolCount: 2,
       contextMenuCount: 2,
     });
@@ -178,17 +185,45 @@ describe('chat', () => {
     expect((await post('/chat', { mode: 'nope', messages: [{ text: 'hi' }] })).status).toBe(400);
   });
 
-  it('reports 501 for a valid request, since the turn loop is not implemented', async () => {
-    const response = await post('/chat', { mode: 'ask', messages: [{ text: 'hi' }] });
+  it('streams a turn as SSE', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider(),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+    });
+    const created = await (await post('/sessions', { mode: 'ask' })).json();
+    const response = await post('/chat', {
+      sessionId: (created as { id: string }).id,
+      mode: 'ask',
+      messages: [{ text: 'hello' }],
+    });
 
-    expect(response.status).toBe(501);
-    expect(await response.json()).toMatchObject({ error: 'not_implemented' });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toMatch(/text\/event-stream/);
+    const body = await response.text();
+    expect(body).toContain('"event":"status"');
+    expect(body).toContain('"event":"done"');
+  });
+
+  it('cancels a session that exists', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider(),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+    });
+    const created = await (await post('/sessions', { mode: 'ask' })).json();
+    const response = await post(`/sessions/${(created as { id: string }).id}/cancel`, {
+      reason: 'operator',
+    });
+
+    expect(response.status).toBe(204);
   });
 });
 
 describe('gates', () => {
   it.each([
-    '/sessions/s1/cancel',
     '/sessions/s1/approve-plan',
     '/sessions/s1/discard-plan',
     '/sessions/s1/mode-switch',
@@ -239,18 +274,58 @@ describe('settings', () => {
     expect(body.policies.toolApprovals.restart_service).toBe('requires_approval');
   });
 
-  it('answers not_implemented rather than 404 for an update', async () => {
-    // A missing route would read to a client as a wrong URL. Writing settings needs a
-    // durable settings store that does not exist yet, and the difference matters when
-    // someone is debugging a client.
+  it('upserts a provider and never echoes the key', async () => {
     const response = await app.request('/settings', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        providers: [
+          {
+            id: 'local',
+            baseUrl: 'https://example.test/v1',
+            model: 'm',
+            apiKey: 'super-secret',
+          },
+        ],
+      }),
     });
 
-    expect(response.status).toBe(501);
-    expect(await response.json()).toMatchObject({ error: 'not_implemented' });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { providers: { hasApiKey: boolean }[] };
+    expect(body.providers[0]?.hasApiKey).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('super-secret');
+  });
+
+  it('rejects an unknown activeProviderId', async () => {
+    const response = await app.request('/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ activeProviderId: 'missing' }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('lists models as catalog entries after a provider is configured', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider(),
+        providers: [{ id: 'local', baseUrl: 'https://example.test/v1', model: 'fake-model' }],
+      }),
+    });
+
+    const response = await post('/models', { providerId: 'local' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      providerId: 'local',
+      models: [{ id: 'fake-model', contextWindow: 8192 }],
+    });
+  });
+
+  it('returns ok:false from /test when no provider is configured', async () => {
+    const response = await post('/test', {});
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: false });
   });
 });
 

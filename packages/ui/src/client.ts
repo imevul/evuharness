@@ -1,6 +1,8 @@
 import {
   type AskUserResponseRequest,
   type ChatRequest,
+  type ConnectionTestRequest,
+  type ConnectionTestResult,
   type ContextMenuCatalogResponse,
   type ContextMenuItemsRequest,
   type ContextMenuItemsResponse,
@@ -9,6 +11,8 @@ import {
   type HarnessSettingsUpdate,
   type HealthResponse,
   type ListSessionsResponse,
+  type ModelListRequest,
+  type ModelListResponse,
   type ModeSwitchDecisionRequest,
   type PromptPreview,
   type PromptPreviewRequest,
@@ -174,6 +178,14 @@ export class HarnessClient {
 
   updateSettings(body: HarnessSettingsUpdate): Promise<HarnessSettings> {
     return this.request(ROUTES.settings, { method: 'PATCH', json: body });
+  }
+
+  testConnection(body: ConnectionTestRequest = {}): Promise<ConnectionTestResult> {
+    return this.request(ROUTES.testConnection, { method: 'POST', json: body });
+  }
+
+  listModels(body: ModelListRequest = {}): Promise<ModelListResponse> {
+    return this.request(ROUTES.models, { method: 'POST', json: body });
   }
 
   /**

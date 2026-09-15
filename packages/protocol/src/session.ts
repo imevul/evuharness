@@ -27,12 +27,21 @@ export type Scope = z.infer<typeof ScopeSchema>;
 export const MessageRoleSchema = z.enum(['system', 'user', 'assistant', 'tool']);
 export type MessageRole = z.infer<typeof MessageRoleSchema>;
 
+/** One tool call on an assistant message, matching the provider thread. */
+export const MessageToolCallSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+export type MessageToolCall = z.infer<typeof MessageToolCallSchema>;
+
 /** A message in the thread sent to the model. */
 export const ChatMessageSchema = z.object({
   role: MessageRoleSchema,
   content: z.string(),
   name: z.string().optional(),
   toolCallId: z.string().optional(),
+  toolCalls: z.array(MessageToolCallSchema).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 

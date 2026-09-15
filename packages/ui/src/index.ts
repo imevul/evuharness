@@ -23,8 +23,18 @@ export {
   ToolApprovalGate,
   type ToolApprovalGateProps,
 } from './components/gates/ToolApprovalGate.js';
+export {
+  isAllowedImageSrc,
+  MarkdownView,
+  type MarkdownViewProps,
+} from './components/MarkdownView.js';
 export { type PromptPreviewProps, PromptPreviewView } from './components/PromptPreview.js';
+export {
+  ProviderSettings,
+  type ProviderSettingsProps,
+} from './components/ProviderSettings.js';
 export { SessionSidebar, type SessionSidebarProps } from './components/SessionSidebar.js';
+export { StatusBar, type StatusBarProps } from './components/StatusBar.js';
 export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCatalogView.js';
 export { Transcript, type TranscriptProps } from './components/Transcript.js';
 export { UsageFooter, type UsageFooterProps } from './components/UsageFooter.js';
@@ -43,3 +53,4 @@ export {
   type UseHarnessSessionOptions,
   useHarnessSession,
 } from './hooks/use-harness-session.js';
+export { expandKNotation, parseKNotation } from './k-notation.js';

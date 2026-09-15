@@ -70,5 +70,14 @@ export function openDatabase(options: OpenDatabaseOptions): DatabaseSync {
       WHERE digest IS NULL
   `);
 
+  // Singleton settings row. The payload includes provider credentials, so the
+  // file is sensitive at rest — same rule as session transcripts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      id      INTEGER PRIMARY KEY CHECK (id = 1),
+      payload TEXT NOT NULL
+    )
+  `);
+
   return db;
 }

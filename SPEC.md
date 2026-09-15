@@ -95,8 +95,19 @@ They are deliberately distinct. Transcript rows carry presentation state such as
 partial and cancelled markers that must never reach the model, and the message
 thread carries system content a UI should not display verbatim.
 
+Completed transcript rows render as sanitized rich text: CommonMark plus GFM,
+images, and mermaid fenced code blocks. Raw HTML is stripped. Image `src` values
+are allowlisted (`https:` and `data:image/*`). A live stream stays plain text so
+a half-closed fence does not flash a broken diagram on every token. A dedicated
+mermaid tool is not part of the harness: models already emit fences.
+
 Sessions also carry pending gate state, cumulative token counts, and an optional
 workspace scope.
+
+A session status bar is always-visible chrome for the active provider, the
+active model, and context use. It is not a settings page. The context fill is
+`lastPromptTokens / maxContextTokens` for the active model. There is no donut
+when the max is unknown — the harness does not invent a window.
 
 ## Chat modes and the send-time pin
 
@@ -235,8 +246,12 @@ Providers are named profiles: a base URL, credentials, a model list, and effort
 capabilities. A session or a single turn may override provider, model, and
 effort. Settings can list available models and test a connection.
 
-The first adapter targets OpenAI-compatible streaming APIs. The adapter
-interface exists so other protocols can be added without touching the runtime.
+Max context tokens are per model id, not one number on the provider. The catalog
+from `GET /v1/models` supplies each listed model's window when the host publishes
+one. A person may override the window for a single model. Override inputs accept
+k-notation (`K`/`M`/`G` ×1000, `Ki`/`Mi`/`Gi` ×1024) and expand to an integer
+on blur and on save. The status snapshot reports the resolved max for the
+active model.
 
 ## Security
 

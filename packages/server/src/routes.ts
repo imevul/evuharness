@@ -1,9 +1,13 @@
 import { type Harness, setSessionMode } from '@evu/harness-core';
 import {
+  CancelRequestSchema,
   ChatRequestSchema,
+  ConnectionTestRequestSchema,
   ContextMenuItemsRequestSchema,
   CreateSessionRequestSchema,
-  type HarnessSettings,
+  encodeSseEvent,
+  HarnessSettingsUpdateSchema,
+  ModelListRequestSchema,
   PromptPreviewRequestSchema,
   SetModeRequestSchema,
   ToolApprovalDecisionRequestSchema,
@@ -70,7 +74,7 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
     if (rejection !== null) {
       return c.json(rejection.body, rejection.status);
     }
-    return c.json(harness.status());
+    return c.json(await harness.status());
   });
 
   // --- Sessions ---
@@ -175,9 +179,8 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
   /**
    * Streaming chat.
    *
-   * The request carries the pinned mode for the turn. Until the turn loop lands
-   * this validates and refuses rather than streaming a fake response: a demo that
-   * appears to work is harder to reason about than one that says what is missing.
+   * The server only frames SSE. The turn itself — pin, rounds, persist, cancel —
+   * lives on the harness so a non-HTTP surface can call the same loop.
    */
   app.post('/chat', async (c) => {
     const rejection = await guard(c.req.raw, CAPABILITIES.chat);
@@ -193,10 +196,64 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
       return c.json({ error: 'invalid_request', detail: `Unknown mode: ${parsed.data.mode}` }, 400);
     }
 
-    return c.json({ error: 'not_implemented', detail: NOT_IMPLEMENTED_MESSAGE }, 501);
+    const abort = new AbortController();
+    const incoming = c.req.raw.signal;
+    const onDisconnect = () => abort.abort();
+    incoming.addEventListener('abort', onDisconnect, { once: true });
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const event of harness.runTurn(parsed.data, abort.signal)) {
+            controller.enqueue(encoder.encode(encodeSseEvent(event)));
+          }
+        } catch (error) {
+          controller.enqueue(
+            encoder.encode(
+              encodeSseEvent({
+                event: 'error',
+                message: messageOf(error),
+              }),
+            ),
+          );
+        } finally {
+          incoming.removeEventListener('abort', onDisconnect);
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+      },
+    });
   });
 
-  app.post('/sessions/:id/cancel', async (c) => notImplemented(c, CAPABILITIES.chat));
+  app.post('/sessions/:id/cancel', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.chat);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = CancelRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    const id = c.req.param('id');
+    const session = await harness.getSession(id);
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    await harness.cancel(id, parsed.data.reason);
+    return c.body(null, 204);
+  });
 
   // --- Gates ---
 
@@ -229,31 +286,66 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
       return c.json(rejection.body, rejection.status);
     }
 
-    // Provider profiles already carry `hasApiKey` rather than a credential, so
-    // there is nothing to redact here — the shape makes a leak impossible.
-    const settings: HarnessSettings = {
-      providers: [...harness.providers],
-      activeProviderId: harness.activeProviderId,
-      prompts: { global: '', perMode: {} },
-      policies: {
-        toolApprovals: Object.fromEntries(
-          harness.tools.specs().map((spec) => [spec.name, spec.approval]),
-        ),
-        askUserEnabled: harness.policies.askUser,
-        maxToolRounds: harness.policies.maxToolRounds,
-      },
-      modes: harness.modes.ids(),
-    };
-
-    return c.json(settings);
+    return c.json(await harness.getSettings());
   });
 
-  // Mutating settings needs a durable settings store, which the runtime does not
-  // have yet. Stubbed rather than omitted so a client gets `not_implemented` instead
-  // of a 404 that reads like a wrong URL.
-  app.patch('/settings', async (c) => notImplemented(c, CAPABILITIES.administer));
-  app.post('/models', async (c) => notImplemented(c, CAPABILITIES.administer));
-  app.post('/test', async (c) => notImplemented(c, CAPABILITIES.administer));
+  app.patch('/settings', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = HarnessSettingsUpdateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    try {
+      return c.json(await harness.updateSettings(parsed.data));
+    } catch (error) {
+      return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
+    }
+  });
+
+  app.post('/models', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = ModelListRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    try {
+      return c.json(
+        await (parsed.data.providerId === undefined
+          ? harness.listModels()
+          : harness.listModels(parsed.data.providerId)),
+      );
+    } catch (error) {
+      return c.json({ error: 'provider_failed', detail: messageOf(error) }, 502);
+    }
+  });
+
+  app.post('/test', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = ConnectionTestRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    return c.json(
+      await (parsed.data.providerId === undefined
+        ? harness.testConnection()
+        : harness.testConnection(parsed.data.providerId)),
+    );
+  });
 
   app.get('/prompt/preview', async (c) => {
     const rejection = await guard(c.req.raw, CAPABILITIES.read);
