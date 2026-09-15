@@ -76,7 +76,11 @@ Because the parent repository cannot see it, `git status` at the root will never
 remind you about pending notes. Run `make internal-status` before handoff.
 
 A fresh clone will not have the directory at all. Anything required to build,
-test, or understand the project must therefore live in tracked docs.
+test, or understand the project must therefore live in tracked docs. Maintainers
+with access to the companion repository can populate it with `make
+fetch-internal`, which clones or updates it into `docs/internal/`; the same
+script backs Cloud Agent environment setup. It is idempotent and degrades to a
+warning when the companion repository is unreachable.
 
 ## Dev stack
 

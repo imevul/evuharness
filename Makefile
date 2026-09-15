@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 .PHONY: help install dev up down build lint typecheck test test-coverage smoke verify verify-dev \
-	public-tree-scan docs-check release-guard internal-status docker-lint
+	public-tree-scan docs-check release-guard internal-status fetch-internal docker-lint
 
 help: ## Show available targets
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -59,3 +59,6 @@ docker-lint: ## Lint Dockerfiles with droast
 
 internal-status: ## Warn when the nested docs/internal repo has uncommitted work
 	bash scripts/internal-status.sh
+
+fetch-internal: ## Clone or update the maintainer-only companion repo into docs/internal
+	bash scripts/fetch-internal.sh
