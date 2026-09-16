@@ -1,0 +1,17 @@
+{
+  "name": "EvuHarness",
+  "install": "corepack pnpm install --frozen-lockfile && corepack pnpm run build",
+  "terminals": [
+    {
+      "name": "harness-api",
+      "command": "EVUHARNESS_FAKE_PROVIDER=1 EVUHARNESS_HOST=0.0.0.0 EVUHARNESS_STORE_PATH=.data/harness.sqlite corepack pnpm --filter @evu/harness-api dev",
+      "description": "Demo HTTP/SSE API (harness runtime + SQLite) on port 4301. Uses the in-process fake provider so chat streams without a live model."
+    },
+    {
+      "name": "harness-web",
+      "command": "corepack pnpm --filter @evu/harness-web dev",
+      "description": "Demo web app (Vite) on port 4300, proxying /api to the API on 4301."
+    }
+  ],
+  "ports": [{ "name": "web", "port": 4300 }, { "name": "api", "port": 4301 }]
+}
