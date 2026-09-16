@@ -224,7 +224,10 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
  * turn.
  */
 function drainFollowUps(sessionId: string, pending: QueuedFollowUp[]): ChatRequest {
-  const last = pending[pending.length - 1]!;
+  const last = pending.at(-1);
+  if (last === undefined) {
+    throw new Error('drainFollowUps requires at least one queued follow-up');
+  }
   return {
     sessionId,
     mode: last.mode,
