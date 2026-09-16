@@ -264,6 +264,23 @@ active model.
 See [SECURITY.md](./SECURITY.md) for the security model: secret handling,
 approval integrity, grant scope isolation, and untrusted content boundaries.
 
+## Authentication and identity
+
+EvuHarness does not own accounts, roles, or sessions of identity. The host does.
+
+The HTTP adapter accepts host-supplied `AuthHooks`:
+
+- `getActor` resolves the caller for a request, or returns `null` to reject it as
+  unauthenticated (`401`).
+- `requireCapability` authorizes a named capability for that actor, or returns
+  false to reject it as forbidden (`403`).
+
+Capabilities the route surface asks about are `harness:read`, `harness:chat`,
+`harness:decide`, and `harness:administer`. Omitting the hooks leaves the
+harness unauthenticated, which is acceptable only for local development. A host
+that already has an identity model maps it into these hooks and keeps account
+storage, login, and tenancy in its own codebase.
+
 ## Non-goals
 
 - Being an end-user chat application

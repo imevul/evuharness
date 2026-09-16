@@ -120,7 +120,9 @@ async function main(): Promise<void> {
 }
 
 function withAuth(token: string | undefined) {
-  const auth = demoAuth(token);
+  // nodeEnv is taken from the process so the production image (NODE_ENV=production)
+  // cannot enable shared-token mode by accident. See apps/api/src/auth.ts.
+  const auth = demoAuth(token, { nodeEnv: process.env.NODE_ENV });
   return auth === undefined ? {} : { auth };
 }
 

@@ -105,6 +105,10 @@ Ports are in the 43xx range to avoid colliding with sibling projects on 42xx.
 State is a SQLite file under a named volume, so the first stack is two services
 with no external database.
 
+Optional demo auth: set `EVUHARNESS_DEV_TOKEN` to enable the shared-token hook on
+the API. It is a development convenience only — the demo refuses the token when
+`NODE_ENV=production`. Real hosts supply their own `AuthHooks` instead.
+
 ### Without Docker
 
 Where Docker is unavailable (for example a Cloud Agent VM), run the same two
