@@ -142,6 +142,39 @@ describe('applyStreamEvent', () => {
     ]);
   });
 
+  it('carries terminal reasoning onto the completed assistant row, not the body', () => {
+    const { state, apply } = harness({ turn: liveTurn, session });
+
+    apply({ event: 'reasoning_delta', text: 'consider options' });
+    apply({ event: 'delta', text: 'answer' });
+    apply({
+      event: 'done',
+      ...terminal,
+      content: 'answer',
+      reasoning: 'consider options',
+    });
+
+    expect(state.transcript).toEqual([
+      {
+        kind: 'assistant',
+        text: 'answer',
+        reasoning: 'consider options',
+      },
+    ]);
+    expect(state.transcript[0]?.text).not.toContain('consider');
+  });
+
+  it('omits reasoning from the completed row when the terminal event has none', () => {
+    const { state, apply } = harness({
+      turn: { ...liveTurn, reasoning: 'stale client buffer' },
+      session,
+    });
+
+    apply({ event: 'done', ...terminal, content: 'clean' });
+
+    expect(state.transcript).toEqual([{ kind: 'assistant', text: 'clean' }]);
+  });
+
   it('suppresses an empty bubble on a quiet cancel', () => {
     const { state, apply } = harness({ turn: liveTurn, session });
 

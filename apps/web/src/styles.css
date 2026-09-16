@@ -168,10 +168,53 @@ pre {
   color: var(--accent);
 }
 
-[data-harness="phase"],
+[data-harness="phase"] {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/*
+ * Reasoning is secondary chrome, not a second assistant bubble: muted type, no
+ * panel fill, collapsed by default on completed rows.
+ */
 [data-harness="reasoning"] {
   color: var(--muted);
   font-size: 0.85em;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin: 0 0 6px;
+}
+
+[data-harness="reasoning"] summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+[data-harness="reasoning"] summary::-webkit-details-marker {
+  display: none;
+}
+
+[data-harness="reasoning"] summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+[data-harness="reasoning"][open] summary::before {
+  content: "▾ ";
+}
+
+[data-harness="reasoning"] pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-family: ui-monospace, monospace;
+  font-size: 0.95em;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 [data-harness="tool"] pre {

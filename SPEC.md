@@ -205,6 +205,10 @@ A turn is a stream of events:
 | `cancelled`              | Terminal cancellation                |
 | `error`                  | Terminal failure                     |
 
+`reasoning_delta` is optional: only providers that expose reasoning emit it.
+The accumulated text lands on the transcript row's `reasoning` field and on the
+terminal `done` / `cancelled` event, never inside the assistant `content` body.
+
 Cancellation is cooperative and always persists what was produced. A user who
 sends another message during a live turn cancels it as a follow-up: the partial
 result is saved and the queued messages are drained as a single next turn.

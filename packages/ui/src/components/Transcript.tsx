@@ -15,6 +15,9 @@ export interface TranscriptProps {
  * Renders persisted rows, then the live turn as a trailing partial row. Keeping the
  * live turn out of the row list is what lets the terminal event replace it with the
  * server's authoritative version without a flicker or a duplicated bubble.
+ *
+ * Reasoning is a secondary collapsed block, never the assistant bubble. Providers
+ * that never emit `reasoning_delta` leave the block absent.
  */
 export function Transcript({ rows, turn = null, className }: TranscriptProps) {
   return (
@@ -32,17 +35,12 @@ export function Transcript({ rows, turn = null, className }: TranscriptProps) {
 
       {turn !== null && (
         <div data-harness="transcript-row" data-kind="assistant" data-partial="true">
-          {turn.reasoning !== '' && (
-            <details data-harness="reasoning">
-              <summary>Thinking</summary>
-              <pre>{turn.reasoning}</pre>
-            </details>
-          )}
+          <ReasoningBlock text={turn.reasoning} open />
           {turn.tools.map((tool, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: append-only call sequence
             <ToolRow key={`${tool.name}-${index}`} tool={tool} />
           ))}
-          <div data-harness="bubble">{turn.content}</div>
+          {turn.content !== '' && <div data-harness="bubble">{turn.content}</div>}
           <span data-harness="phase">{turn.phase}</span>
         </div>
       )}
@@ -57,20 +55,36 @@ function Row({ row }: { row: TranscriptRow }) {
       data-kind={row.kind}
       data-cancelled={row.cancelled === true ? 'true' : undefined}
     >
-      {row.reasoning !== undefined && row.reasoning !== '' && (
-        <details data-harness="reasoning">
-          <summary>Thinking</summary>
-          <pre>{row.reasoning}</pre>
-        </details>
-      )}
+      <ReasoningBlock text={row.reasoning} />
       {row.tools?.map((tool, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: fixed call sequence on a stored row
         <ToolRow key={`${tool.name}-${index}`} tool={tool} />
       ))}
-      <div data-harness="bubble">
-        <MarkdownView text={row.text} />
-      </div>
+      {(row.kind !== 'assistant' || row.text !== '') && (
+        <div data-harness="bubble">
+          <MarkdownView text={row.text} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * Collapsed secondary presentation for provider reasoning.
+ *
+ * Live turns pass `open` so tokens stay visible while streaming; completed rows
+ * stay collapsed so reasoning does not compete with the assistant reply.
+ */
+function ReasoningBlock({ text, open = false }: { text: string | undefined; open?: boolean }) {
+  if (text === undefined || text === '') {
+    return null;
+  }
+
+  return (
+    <details data-harness="reasoning" open={open || undefined}>
+      <summary>Thinking</summary>
+      <pre>{text}</pre>
+    </details>
   );
 }
 

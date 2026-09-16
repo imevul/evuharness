@@ -108,6 +108,14 @@ effective provider and model after those layers.
 A live stream must survive navigation within the host app. Keep the streaming
 state above the route boundary rather than inside a page component.
 
+## Reasoning
+
+Providers may emit `reasoning_delta`. The transcript shows that text in a
+collapsed secondary block (`data-harness="reasoning"`), never as the assistant
+bubble. Live turns open the block while streaming so tokens stay visible;
+completed rows keep it collapsed. Hosts theme the attribute; the kit does not
+ship a glow or accent treatment for it.
+
 ## Accessibility
 
 - Every control is reachable and operable by keyboard.

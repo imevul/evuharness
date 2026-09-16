@@ -75,6 +75,9 @@ const UsageEventSchema = z.object({
  *
  * `mode` is echoed so a client can resync its draft control after a gate changed
  * the session default.
+ *
+ * `reasoning` is the accumulated reasoning text for the turn, when any provider
+ * emitted it. It is never folded into `content`.
  */
 const TerminalFieldsSchema = z.object({
   sessionId: z.string(),
@@ -82,6 +85,7 @@ const TerminalFieldsSchema = z.object({
   mode: ChatModeIdSchema,
   title: z.string(),
   tools: z.array(ToolEventSchema).default([]),
+  reasoning: z.string().optional(),
   pendingToolApprovals: z.array(PendingToolApprovalSchema).default([]),
   pendingPlan: PendingPlanSchema.nullable().default(null),
   pendingModeSwitch: PendingModeSwitchSchema.nullable().default(null),
