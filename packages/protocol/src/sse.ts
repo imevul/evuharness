@@ -8,11 +8,30 @@ import { type StreamEvent, StreamEventSchema } from './events.js';
  */
 
 const DATA_PREFIX = 'data:';
+const COMMENT_PREFIX = ':';
 const FRAME_SEPARATOR = '\n\n';
+
+/**
+ * Default interval for SSE comment keep-alives while a chat turn is open.
+ *
+ * Long enough to avoid chatter; short enough for common proxy idle timeouts
+ * (often 30–60s) during tool or gate waits that emit no data frames.
+ */
+export const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
 
 /** Encode one event as an SSE frame. */
 export function encodeSseEvent(event: StreamEvent): string {
   return `${DATA_PREFIX} ${JSON.stringify(event)}${FRAME_SEPARATOR}`;
+}
+
+/**
+ * Encode an SSE comment frame.
+ *
+ * Comments are not data events: clients must ignore them. Used as keep-alive
+ * pings so intermediaries do not idle-timeout a quiet but still-open turn.
+ */
+export function encodeSseComment(text = 'keepalive'): string {
+  return `${COMMENT_PREFIX} ${text}${FRAME_SEPARATOR}`;
 }
 
 export interface SseParseResult {

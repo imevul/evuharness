@@ -7,25 +7,15 @@ import type {
   ProviderOverride,
   SessionDetail,
   StreamEvent,
-  ToolEvent,
   TranscriptRow,
-  TurnPhase,
 } from '@evu/harness-protocol';
 import { isTerminalEvent } from '@evu/harness-protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HarnessClient } from '../client.js';
+import { LIVE_TURN_POLL_MS, type LiveTurn, splitLiveSession } from './session-live.js';
 
-export interface LiveTurn {
-  phase: TurnPhase;
-  /** Assistant text accumulated so far this turn. */
-  content: string;
-  /** Reasoning text, when the provider exposes it. Never persisted. */
-  reasoning: string;
-  /** Tool calls seen so far, shown inline while the turn runs. */
-  tools: ToolEvent[];
-  /** The mode this turn was sent with, which cannot change while it runs. */
-  mode: ChatModeId;
-}
+export type { LiveTurn, SplitLiveSession } from './session-live.js';
+export { LIVE_TURN_POLL_MS, splitLiveSession } from './session-live.js';
 
 export interface HarnessSessionState {
   session: SessionDetail | null;
@@ -113,6 +103,15 @@ interface QueuedSend {
  * as `follow_up`, and the queue is drained as one next chat request (last send
  * wins for the mode pin). That matches the core drain and avoids racing several
  * concurrent `/chat` streams for the same session.
+ *
+ * ## Keep-alive and reconnect
+ *
+ * Hosts must keep this hook (or equivalent stream state) above route boundaries
+ * so a navigation remount does not tear down the only owner of the live turn.
+ * The server sends SSE comment keep-alives and does not cancel a turn when the
+ * HTTP body drops. If the stream still fails, the hook reloads session detail:
+ * when `turnInProgress` is set it rebuilds the live bubble from any partial
+ * assistant row and polls until the turn finishes.
  */
 export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSessionState {
   const { client, sessionId, initialMode, workspaceId } = options;
@@ -127,6 +126,8 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
   const abort = useRef<AbortController | null>(null);
   const followUpQueue = useRef<QueuedSend[]>([]);
   const draining = useRef(false);
+  /** Bumped to stop an in-flight recover/poll loop when a real stream starts. */
+  const watchGeneration = useRef(0);
   // Keep the latest ids for the drain loop without re-creating it every render.
   const sessionIdRef = useRef(sessionId);
   const workspaceIdRef = useRef(workspaceId);
@@ -135,31 +136,89 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
   workspaceIdRef.current = workspaceId;
   clientRef.current = client;
 
+  const applyDetail = useCallback((detail: SessionDetail) => {
+    const split = splitLiveSession(detail);
+    setSession(detail);
+    setTranscript(split.transcript);
+    setPending(split.pending);
+    setTurn(split.turn);
+  }, []);
+
+  const watchLiveTurn = useCallback(
+    async (id: string) => {
+      const generation = ++watchGeneration.current;
+      while (watchGeneration.current === generation && sessionIdRef.current === id) {
+        try {
+          const detail = await clientRef.current.getSession(id);
+          if (watchGeneration.current !== generation || sessionIdRef.current !== id) {
+            return;
+          }
+          applyDetail(detail);
+          setError(null);
+          if (!detail.turnInProgress) {
+            return;
+          }
+        } catch (cause) {
+          if (watchGeneration.current !== generation) {
+            return;
+          }
+          setError(cause instanceof Error ? cause.message : 'recover_failed');
+          return;
+        }
+        await sleep(LIVE_TURN_POLL_MS);
+      }
+    },
+    [applyDetail],
+  );
+
+  const recoverAfterDisconnect = useCallback(
+    async (id: string | null) => {
+      if (id === null) {
+        return;
+      }
+      try {
+        const detail = await clientRef.current.getSession(id);
+        applyDetail(detail);
+        if (detail.turnInProgress) {
+          setError(null);
+          await watchLiveTurn(id);
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'recover_failed');
+      }
+    },
+    [applyDetail, watchLiveTurn],
+  );
+
   const reload = useCallback(async () => {
     if (sessionId === null) {
+      watchGeneration.current += 1;
       setSession(null);
       setTranscript([]);
       setPending(null);
+      setTurn(null);
       return;
     }
 
     try {
       const detail = await client.getSession(sessionId);
-      setSession(detail);
-      setTranscript(detail.transcript);
-      setPending(detail.pending);
+      applyDetail(detail);
       setError(null);
+      if (detail.turnInProgress && abort.current === null && !draining.current) {
+        void watchLiveTurn(sessionId);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'load_failed');
     }
-  }, [client, sessionId]);
+  }, [client, sessionId, applyDetail, watchLiveTurn]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  // A live stream must not outlive the component. Without this, a turn kept
-  // writing into state after unmount and the socket stayed open.
+  // Abort the local reader on unmount so the socket does not leak. The server
+  // does not cancel the turn on disconnect; a remounted owner recovers via
+  // `turnInProgress` + session reload.
   useEffect(() => () => abort.current?.abort(), []);
 
   const drainFollowUps = useCallback(async () => {
@@ -167,6 +226,8 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
       return;
     }
     draining.current = true;
+    // A real `/chat` stream owns updates; stop any recover poller.
+    watchGeneration.current += 1;
 
     try {
       while (followUpQueue.current.length > 0) {
@@ -187,6 +248,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
           mode: last.mode,
         });
 
+        let handedOffToRecover = false;
         try {
           const stream = clientRef.current.chat(
             {
@@ -210,13 +272,18 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
             if (isTerminalEvent(event)) break;
           }
         } catch (cause) {
-          // An abort is a cancel the user asked for, not a failure to report.
+          // An abort is a cancel the user (or unmount) asked for, not a failure.
           if (!controller.signal.aborted) {
             setError(cause instanceof Error ? cause.message : 'stream_failed');
+            handedOffToRecover = true;
+            await recoverAfterDisconnect(sessionIdRef.current);
           }
         } finally {
           if (abort.current === controller) abort.current = null;
-          setTurn(null);
+          // Recover may have rebuilt `turn` from `turnInProgress`; do not wipe it.
+          if (!handedOffToRecover) {
+            setTurn(null);
+          }
         }
       }
     } finally {
@@ -226,7 +293,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
         await drainFollowUps();
       }
     }
-  }, []);
+  }, [recoverAfterDisconnect]);
 
   const send = useCallback(
     async (input: {
@@ -502,3 +569,9 @@ function applyEvent(event: StreamEvent, sinks: EventSinks): void {
 }
 
 export { applyEvent as applyStreamEvent };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
