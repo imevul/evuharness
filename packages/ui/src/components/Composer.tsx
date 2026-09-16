@@ -1,7 +1,23 @@
-import type { ChatModeId, ContextMenuDescriptor } from '@evu/harness-protocol';
-import { type KeyboardEvent, useCallback, useRef, useState } from 'react';
+import type { ChatModeId, ContextMenuDescriptor, ContextRef } from '@evu/harness-protocol';
 import {
+  type KeyboardEvent,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import {
+  deleteChipAfterCaret,
+  deleteChipBeforeCaret,
+  mergeComposerRefs,
+  paintComposer,
+  readSelectionCaret,
+  serializeComposer,
+  setComposerCaret,
+  toWireRefs,
   type ComposerValue,
+} from '../composer/serialize.js';
+import {
   type ContextMenuFetcher,
   useContextMenu,
 } from '../hooks/use-context-menu.js';
@@ -14,7 +30,11 @@ export interface ComposerProps {
   modes: readonly ChatModeId[];
   mode: ChatModeId;
   onModeChange: (mode: ChatModeId) => void;
-  onSend: (value: ComposerValue) => void;
+  /**
+   * Called with wire text plus structured refs. Presentation fields on chips are
+   * stripped — the payload matches `UserTurnInput`.
+   */
+  onSend: (value: { text: string; refs: ContextRef[]; caret: number }) => void;
   onCancel?: () => void;
   turnInProgress?: boolean;
   disabled?: boolean;
@@ -25,16 +45,20 @@ export interface ComposerProps {
 const EMPTY: ComposerValue = { text: '', caret: 0, refs: [] };
 
 /**
- * The message composer: text, chips, mode chip, and the catalog popup.
+ * The message composer: contenteditable input, inline chips, mode chip, and the
+ * catalog popup.
  *
  * Keyboard handling lives here rather than in the popup because the events arrive
- * on the textarea. When a trigger is active the arrow keys, Enter, and Escape drive
+ * on the editor. When a trigger is active the arrow keys, Enter, and Escape drive
  * the menu; otherwise they do their ordinary thing. That split is why the popup is
  * pure rendering.
  *
  * The mode chip writes only local draft state. It is the caller's decision whether
  * a change also persists as the session default; this component never assumes it
  * does, so cycling modes during a turn stays harmless.
+ *
+ * Contenteditable is the editing surface; `serializeComposer` turns it into wire
+ * text (chip tokens, not labels) plus `refs[]` at send time.
  */
 export function Composer(props: ComposerProps) {
   const {
@@ -52,15 +76,57 @@ export function Composer(props: ComposerProps) {
   } = props;
 
   const [value, setValue] = useState<ComposerValue>(EMPTY);
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  // Menu picks rewrite the DOM from the wire value; keystrokes must not, or the
+  // caret jumps on every character.
+  const needsPaint = useRef(false);
 
-  const menu = useContextMenu({ menus, fetchItems, value, onChange: setValue });
+  const applyValue = useCallback((next: ComposerValue, paint: boolean) => {
+    if (paint) needsPaint.current = true;
+    setValue(next);
+  }, []);
+
+  const menu = useContextMenu({
+    menus,
+    fetchItems,
+    value,
+    onChange: (next) => applyValue(next, true),
+  });
+
+  useLayoutEffect(() => {
+    const root = editorRef.current;
+    if (root === null || !needsPaint.current) return;
+    needsPaint.current = false;
+    paintComposer(root, value);
+    setComposerCaret(root, value.caret);
+  }, [value]);
+
+  const readEditor = useCallback((): ComposerValue => {
+    const root = editorRef.current;
+    if (root === null) return value;
+    const serialized = serializeComposer(root, readSelectionCaret(root));
+    return {
+      ...serialized,
+      refs: mergeComposerRefs(serialized, value.refs),
+    };
+  }, [value]);
+
+  const syncFromEditor = useCallback(() => {
+    applyValue(readEditor(), false);
+  }, [applyValue, readEditor]);
 
   const submit = useCallback(() => {
-    if (disabled || value.text.trim() === '') return;
-    onSend(value);
+    if (disabled) return;
+    const current = readEditor();
+    if (current.text.trim() === '') return;
+    onSend({
+      text: current.text,
+      caret: current.caret,
+      refs: toWireRefs(current.refs),
+    });
+    needsPaint.current = true;
     setValue(EMPTY);
-  }, [disabled, value, onSend]);
+  }, [disabled, readEditor, onSend]);
 
   const cycleMode = useCallback(() => {
     const index = modes.indexOf(mode);
@@ -69,7 +135,7 @@ export function Composer(props: ComposerProps) {
   }, [modes, mode, onModeChange]);
 
   const onKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    (event: KeyboardEvent<HTMLDivElement>) => {
       // Shift+Tab cycles modes whether or not a menu is open, and must not move
       // focus out of the composer.
       if (event.key === 'Tab' && event.shiftKey) {
@@ -78,6 +144,7 @@ export function Composer(props: ComposerProps) {
         return;
       }
 
+      const root = editorRef.current;
       const menuOpen = menu.match !== null && (menu.nodes.length > 0 || menu.loading);
 
       if (menuOpen) {
@@ -126,6 +193,18 @@ export function Composer(props: ComposerProps) {
         }
       }
 
+      if (root !== null && event.key === 'Backspace' && deleteChipBeforeCaret(root)) {
+        event.preventDefault();
+        syncFromEditor();
+        return;
+      }
+
+      if (root !== null && event.key === 'Delete' && deleteChipAfterCaret(root)) {
+        event.preventDefault();
+        syncFromEditor();
+        return;
+      }
+
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         submit();
@@ -137,48 +216,33 @@ export function Composer(props: ComposerProps) {
         onCancel();
       }
     },
-    [menu, value.caret, cycleMode, submit, turnInProgress, onCancel],
+    [menu, value.caret, cycleMode, submit, turnInProgress, onCancel, syncFromEditor],
   );
+
+  const empty = value.text.trim() === '';
 
   return (
     <div className={className} data-harness="composer">
       <ContextMenuPopup state={menu} />
 
-      {value.refs.length > 0 && (
-        <div data-harness="composer-chips">
-          {value.refs.map((ref) => (
-            <span key={`${ref.menu}:${ref.path.join('/')}:${ref.id}`} data-harness="chip">
-              {ref.token}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <textarea
-        ref={textarea}
+      <div
+        ref={editorRef}
         data-harness="composer-input"
-        value={value.text}
-        placeholder={placeholder}
-        disabled={disabled}
+        data-placeholder={placeholder}
+        data-empty={empty ? 'true' : undefined}
+        role="textbox"
+        aria-multiline="true"
+        aria-label={placeholder}
+        aria-disabled={disabled || undefined}
+        contentEditable={!disabled}
+        suppressContentEditableWarning
         onKeyDown={onKeyDown}
-        // Caret position is read from the element on every change and click, since
-        // trigger detection is caret-relative: the same text means different things
-        // depending on where the cursor sits.
-        onChange={(event) => {
-          // Read before setState: React nulls `currentTarget` after the listener
-          // returns, and a functional updater runs later.
-          const text = event.currentTarget.value;
-          const caret = event.currentTarget.selectionStart;
-          setValue((current) => ({ ...current, text, caret }));
-        }}
-        onClick={(event) => {
-          const caret = event.currentTarget.selectionStart;
-          setValue((current) => ({ ...current, caret }));
-        }}
-        onKeyUp={(event) => {
-          const caret = event.currentTarget.selectionStart;
-          setValue((current) => ({ ...current, caret }));
-        }}
+        // Contenteditable caret is selection-based; re-serialize on every mutation
+        // and selection change so trigger detection stays caret-relative.
+        onInput={syncFromEditor}
+        onClick={syncFromEditor}
+        onKeyUp={syncFromEditor}
+        onBlur={syncFromEditor}
       />
 
       <div data-harness="composer-actions">
@@ -195,7 +259,7 @@ export function Composer(props: ComposerProps) {
             type="button"
             data-harness="composer-send"
             onClick={submit}
-            disabled={disabled || value.text.trim() === ''}
+            disabled={disabled || empty}
           >
             Send
           </button>

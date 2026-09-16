@@ -16,7 +16,7 @@ export interface ContextMenuPopupProps {
  * commit.
  *
  * Rendering only; all state transitions live in `useContextMenu`. Keyboard handling
- * belongs to the composer, since the events arrive on the textarea, not here.
+ * belongs to the composer, since the events arrive on the contenteditable, not here.
  */
 export function ContextMenuPopup({ state, className }: ContextMenuPopupProps) {
   if (state.match === null || state.menu === null) {
