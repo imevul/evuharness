@@ -500,7 +500,7 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
       return c.json({ error: 'invalid_request', detail: `Unknown mode: ${mode}` }, 400);
     }
 
-    return c.json(harness.toolCatalog(mode));
+    return c.json(await harness.toolCatalog(mode));
   });
 
   // --- Context menus ---

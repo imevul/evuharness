@@ -36,6 +36,7 @@ import {
 } from './session-record.js';
 import {
   applySettingsUpdate,
+  effectiveToolApprovals,
   emptyStoredSettings,
   InMemorySettingsStore,
   type ProviderProfileInput,
@@ -54,7 +55,7 @@ export type {
   SettingsStore,
   StoredProviderProfile,
 } from './settings-store.js';
-export { InMemorySettingsStore } from './settings-store.js';
+export { effectiveToolApprovals, InMemorySettingsStore } from './settings-store.js';
 
 export interface HarnessPolicies {
   askUser?: boolean;
@@ -146,7 +147,7 @@ export interface Harness {
     sessionId?: string;
   }): Promise<PromptPreview>;
 
-  toolCatalog(mode: ChatModeId): ToolCatalogResponse;
+  toolCatalog(mode: ChatModeId): Promise<ToolCatalogResponse>;
   menuCatalog(): ContextMenuDescriptor[];
   listMenuItems(
     menuId: string,
@@ -220,6 +221,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       perMode: hostPrompts.perMode ?? {},
     };
     seeded.policies = {
+      toolApprovals: {},
       askUserEnabled: config.policies?.askUser ?? true,
       maxToolRounds: config.policies?.maxToolRounds ?? 12,
     };
@@ -238,11 +240,40 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     };
   }
 
+  function registryApprovals(): Record<string, 'always_allow' | 'requires_approval'> {
+    return Object.fromEntries(tools.specs().map((spec) => [spec.name, spec.approval]));
+  }
+
+  function builtinNames(): Set<string> {
+    return new Set(tools.specs().filter((spec) => spec.builtin).map((spec) => spec.name));
+  }
+
+  function approvalsFor(stored: Awaited<ReturnType<typeof loadStored>>) {
+    return effectiveToolApprovals(
+      registryApprovals(),
+      stored.policies.toolApprovals ?? {},
+      builtinNames(),
+    );
+  }
+
   function publicFrom(stored: Awaited<ReturnType<typeof loadStored>>): HarnessSettings {
     return toPublicSettings(stored, {
       modes: modes.ids(),
-      toolApprovals: Object.fromEntries(tools.specs().map((spec) => [spec.name, spec.approval])),
+      toolApprovals: approvalsFor(stored),
     });
+  }
+
+  async function toolApprovalRule(name: string): Promise<'always_allow' | 'requires_approval'> {
+    if (!tools.has(name)) {
+      // Fail closed: an unknown name must not skip the gate.
+      return 'requires_approval';
+    }
+    const spec = tools.get(name).spec;
+    if (spec.builtin) {
+      return 'always_allow';
+    }
+    const stored = await loadStored();
+    return stored.policies.toolApprovals?.[name] ?? spec.approval;
   }
 
   async function loadRecord(id: string): Promise<SessionRecord> {
@@ -328,6 +359,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     },
     maxToolRounds: async () => (await loadStored()).policies.maxToolRounds,
     askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
+    toolApprovalRule,
     now,
   });
 
@@ -372,6 +404,17 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     },
 
     async updateSettings(update: HarnessSettingsUpdate): Promise<HarnessSettings> {
+      const approvals = update.policies?.toolApprovals;
+      if (approvals !== undefined) {
+        for (const [name, rule] of Object.entries(approvals)) {
+          if (!tools.has(name)) {
+            throw new Error(`Unknown tool: ${name}`);
+          }
+          if (tools.get(name).spec.builtin && rule !== 'always_allow') {
+            throw new Error(`Builtin tool '${name}' cannot require approval`);
+          }
+        }
+      }
       const next = applySettingsUpdate(await loadStored(), update);
       await settingsStore.put(next);
       return publicFrom(next);
@@ -465,9 +508,16 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       });
     },
 
-    toolCatalog(mode: ChatModeId): ToolCatalogResponse {
+    async toolCatalog(mode: ChatModeId): Promise<ToolCatalogResponse> {
       const allowed = modes.toolNamesFor(mode, tools.modeContext());
-      return { mode, tools: tools.catalogForMode(allowed) };
+      const approvals = approvalsFor(await loadStored());
+      return {
+        mode,
+        tools: tools.catalogForMode(allowed).map((entry) => ({
+          ...entry,
+          approval: approvals[entry.name] ?? entry.approval,
+        })),
+      };
     },
 
     menuCatalog(): ContextMenuDescriptor[] {

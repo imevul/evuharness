@@ -156,3 +156,57 @@ describe('createHarness settings', () => {
     expect(JSON.stringify(await runtime.getSettings())).not.toContain('from-env');
   });
 });
+
+describe('tool approval policy settings', () => {
+  it('merges toolApprovals without wiping sibling tools', () => {
+    const current = emptyStoredSettings();
+    current.policies.toolApprovals = { write_note: 'requires_approval' };
+
+    const next = applySettingsUpdate(current, {
+      policies: { toolApprovals: { echo: 'always_allow' } },
+    });
+
+    expect(next.policies.toolApprovals).toEqual({
+      write_note: 'requires_approval',
+      echo: 'always_allow',
+    });
+  });
+
+  it('persists an override and reflects it in settings and catalog', async () => {
+    const runtime = createHarness({
+      tools: [
+        {
+          name: 'restart_service',
+          description: 'restart',
+          parameters: {},
+          handler: () => 'ok',
+        },
+      ],
+    });
+
+    expect((await runtime.getSettings()).policies.toolApprovals.restart_service).toBe(
+      'requires_approval',
+    );
+
+    await runtime.updateSettings({
+      policies: { toolApprovals: { restart_service: 'always_allow' } },
+    });
+
+    expect((await runtime.getSettings()).policies.toolApprovals.restart_service).toBe(
+      'always_allow',
+    );
+    expect(
+      (await runtime.toolCatalog('agent')).tools.find((tool) => tool.name === 'restart_service')
+        ?.approval,
+    ).toBe('always_allow');
+  });
+
+  it('rejects gating a builtin tool', async () => {
+    const runtime = createHarness();
+    await expect(
+      runtime.updateSettings({
+        policies: { toolApprovals: { propose_plan: 'requires_approval' } },
+      }),
+    ).rejects.toThrow(/Builtin tool/);
+  });
+});

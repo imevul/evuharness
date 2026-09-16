@@ -47,7 +47,7 @@ export interface StoredSettings {
   providers: StoredProviderProfile[];
   activeProviderId: string | null;
   prompts: PromptSettings;
-  policies: Pick<PolicySettings, 'askUserEnabled' | 'maxToolRounds'>;
+  policies: PolicySettings;
 }
 
 export interface SettingsStore {
@@ -60,7 +60,7 @@ export function emptyStoredSettings(): StoredSettings {
     providers: [],
     activeProviderId: null,
     prompts: { global: '', perMode: {} },
-    policies: { askUserEnabled: true, maxToolRounds: 12 },
+    policies: { toolApprovals: {}, askUserEnabled: true, maxToolRounds: 12 },
   };
 }
 
@@ -110,12 +110,40 @@ export function toPublicSettings(
     activeProviderId: stored.activeProviderId,
     prompts: stored.prompts,
     policies: {
+      // Effective map (registry defaults merged with overrides), not the raw
+      // override bag — a settings UI must show every registered tool.
       toolApprovals: extras.toolApprovals,
-      askUserEnabled: stored.policies.askUserEnabled,
-      maxToolRounds: stored.policies.maxToolRounds,
+      askUserEnabled: stored.policies.askUserEnabled ?? true,
+      maxToolRounds: stored.policies.maxToolRounds ?? 12,
     },
     modes: extras.modes,
   };
+}
+
+/**
+ * Merge registry defaults with stored per-tool overrides.
+ *
+ * Builtin gate tools stay `always_allow`: they open a human gate rather than
+ * causing a side effect, so a settings override must not force an approval on
+ * them (see SPEC.md builtin exemption).
+ */
+export function effectiveToolApprovals(
+  defaults: PolicySettings['toolApprovals'],
+  overrides: PolicySettings['toolApprovals'],
+  builtinNames: ReadonlySet<string>,
+): PolicySettings['toolApprovals'] {
+  const merged: PolicySettings['toolApprovals'] = { ...defaults };
+  for (const [name, rule] of Object.entries(overrides)) {
+    if (builtinNames.has(name)) {
+      merged[name] = 'always_allow';
+      continue;
+    }
+    merged[name] = rule;
+  }
+  for (const name of builtinNames) {
+    merged[name] = 'always_allow';
+  }
+  return merged;
 }
 
 function upsertProvider(
@@ -213,8 +241,14 @@ export function applySettingsUpdate(
       perMode: { ...current.prompts.perMode, ...update.prompts?.perMode },
     },
     policies: {
-      askUserEnabled: update.policies?.askUserEnabled ?? current.policies.askUserEnabled,
-      maxToolRounds: update.policies?.maxToolRounds ?? current.policies.maxToolRounds,
+      // Upsert-by-name, same reason as providers: a tools tab must not wipe
+      // approvals another tab did not send.
+      toolApprovals: {
+        ...(current.policies.toolApprovals ?? {}),
+        ...(update.policies?.toolApprovals ?? {}),
+      },
+      askUserEnabled: update.policies?.askUserEnabled ?? current.policies.askUserEnabled ?? true,
+      maxToolRounds: update.policies?.maxToolRounds ?? current.policies.maxToolRounds ?? 12,
     },
   };
 }

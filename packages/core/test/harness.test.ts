@@ -309,7 +309,7 @@ describe('prompt composition', () => {
 });
 
 describe('tool catalog', () => {
-  it('lists every tool with per-mode availability', () => {
+  it('lists every tool with per-mode availability', async () => {
     const instance = harness({
       tools: [
         { name: 'read', description: 'r', parameters: {}, mutates: false, handler: () => '' },
@@ -317,7 +317,7 @@ describe('tool catalog', () => {
       ],
     });
 
-    const catalog = instance.toolCatalog('ask');
+    const catalog = await instance.toolCatalog('ask');
 
     expect(catalog.tools).toHaveLength(4);
     expect(catalog.tools.find((tool) => tool.name === 'write')?.availableInMode).toBe(false);
