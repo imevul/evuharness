@@ -5,6 +5,7 @@
  * directly, and the package the server adapter wraps.
  */
 
+export * from './builtin-tools.js';
 export * from './context-menus/index.js';
 export * from './fake-provider.js';
 export * from './gate-waiters.js';

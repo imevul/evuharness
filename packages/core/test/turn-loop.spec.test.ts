@@ -11,9 +11,11 @@
 
 import {
   createHarness,
+  digestToolCall,
   FakeProvider,
   InMemorySessionStore,
   type ProviderEvent,
+  resolveGrant,
   type SessionStore,
 } from '@evu/harness-core';
 import { isTerminalEvent, type StreamEvent } from '@evu/harness-protocol';
@@ -1022,15 +1024,207 @@ describe('turn loop: tool approval gate', () => {
 });
 
 describe('turn loop: plan gate', () => {
-  it.skip('suspends the turn when the model proposes a plan', () => {});
+  it('suspends the turn when the model proposes a plan', async () => {
+    const provider = new FakeProvider([
+      {
+        events: toolEvents('c1', 'propose_plan', {
+          title: 'Roll out',
+          steps: [{ tool: 'write_note', summary: 'write', arguments: { key: 'a', body: 'b' } }],
+        }),
+      },
+      { events: textEvents('after plan') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, WRITE] });
+    const session = await harness.createSession({ mode: 'plan' });
 
-  it.skip('switches the session to agent mode on plan approval', () => {});
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'plan',
+        messages: [{ text: 'plan it' }],
+      })) {
+        events.push(event);
+      }
+    })();
 
-  it.skip('mints one-shot receipts for the approved plan steps', () => {});
+    await waitFor(() => events.some((event) => event.event === 'plan_approval_required'));
+    expect(events.some((event) => event.event === 'done')).toBe(false);
+    expect((await harness.getSession(session.id))?.pending.plan?.title).toBe('Roll out');
 
-  it.skip('discards the plan and leaves the mode unchanged on discard', () => {});
+    await harness.approvePlan(session.id);
+    await running;
 
-  it.skip('does not let plan approval widen what the planning turn could do', () => {});
+    expect(events.some((event) => event.event === 'plan_approval_required')).toBe(true);
+    expect(events.at(-1)?.event).toBe('done');
+  });
+
+  it('switches the session to agent mode on plan approval', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: toolEvents('c1', 'propose_plan', {
+            title: 'Roll out',
+            steps: [{ summary: 'look around' }],
+          }),
+        },
+        { events: textEvents('done') },
+      ]),
+      { tools: [ECHO, WRITE] },
+    );
+    const session = await harness.createSession({ mode: 'plan' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'plan',
+        messages: [{ text: 'plan' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'plan_approval_required'));
+    expect((await harness.getSession(session.id))?.mode).toBe('plan');
+    await harness.approvePlan(session.id);
+    await running;
+
+    expect((await harness.getSession(session.id))?.mode).toBe('agent');
+    expect(events.at(-1)).toMatchObject({ event: 'done', mode: 'agent' });
+  });
+
+  it('mints one-shot receipts for the approved plan steps', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: toolEvents('c1', 'propose_plan', {
+            title: 'Write',
+            steps: [
+              { tool: 'write_note', summary: 'write', arguments: { key: 'k', body: 'v' } },
+              { summary: 'no tool, no receipt' },
+            ],
+          }),
+        },
+        { events: textEvents('done') },
+      ]),
+      { tools: [ECHO, WRITE] },
+    );
+    const session = await harness.createSession({ mode: 'plan' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'plan',
+        messages: [{ text: 'plan' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'plan_approval_required'));
+    await harness.approvePlan(session.id);
+    await running;
+
+    const digest = digestToolCall('write_note', { key: 'k', body: 'v' });
+    const resolved = await resolveGrant(harness.grants, {
+      sessionId: session.id,
+      tool: 'write_note',
+      digest,
+    });
+    expect(resolved).toMatchObject({ allowed: true, consumedReceipt: true });
+
+    const again = await resolveGrant(harness.grants, {
+      sessionId: session.id,
+      tool: 'write_note',
+      digest,
+    });
+    expect(again.allowed).toBe(false);
+  });
+
+  it('discards the plan and leaves the mode unchanged on discard', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: toolEvents('c1', 'propose_plan', {
+            title: 'Nope',
+            steps: [{ summary: 'skip' }],
+          }),
+        },
+        { events: textEvents('ok') },
+      ]),
+      { tools: [ECHO, WRITE] },
+    );
+    const session = await harness.createSession({ mode: 'plan' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'plan',
+        messages: [{ text: 'plan' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'plan_approval_required'));
+    await harness.discardPlan(session.id);
+    await running;
+
+    expect((await harness.getSession(session.id))?.mode).toBe('plan');
+    expect((await harness.getSession(session.id))?.pending.plan).toBeNull();
+    const tool = events.find((event) => event.event === 'tool');
+    expect(tool).toMatchObject({ event: 'tool', name: 'propose_plan' });
+    expect(String((tool as { result: string }).result)).toMatch(/discarded/i);
+  });
+
+  it('does not let plan approval widen what the planning turn could do', async () => {
+    const provider = new FakeProvider([
+      {
+        events: toolEvents('c1', 'propose_plan', {
+          title: 'Then write',
+          steps: [{ tool: 'write_note', summary: 'write', arguments: { key: 'k', body: 'v' } }],
+        }),
+      },
+      {
+        events: toolEvents('c2', 'write_note', { key: 'k', body: 'v' }),
+      },
+      { events: textEvents('done') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, WRITE] });
+    const session = await harness.createSession({ mode: 'plan' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'plan',
+        messages: [{ text: 'plan' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'plan_approval_required'));
+    await harness.approvePlan(session.id);
+    await running;
+
+    expect((await harness.getSession(session.id))?.mode).toBe('agent');
+    const write = events.find(
+      (event) => event.event === 'tool' && (event as { name: string }).name === 'write_note',
+    );
+    expect(write).toMatchObject({
+      event: 'tool',
+      name: 'write_note',
+      denied: true,
+    });
+    // The second provider round still saw only the plan-mode allowlist.
+    const secondCallTools = provider.calls[1]?.tools?.map((tool) => tool.name) ?? [];
+    expect(secondCallTools).toContain('propose_plan');
+    expect(secondCallTools).not.toContain('write_note');
+  });
 });
 
 describe('turn loop: ask-user gate', () => {
@@ -1249,13 +1443,152 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 }
 
 describe('turn loop: mode switch gate', () => {
-  it.skip('suspends the turn when the model requests a mode switch', () => {});
+  it('suspends the turn when the model requests a mode switch', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: toolEvents('c1', 'request_mode_switch', {
+            to: 'agent',
+            reason: 'need writes',
+          }),
+        },
+        { events: textEvents('switched') },
+      ]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
 
-  it.skip('writes the session default mode on approval', () => {});
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'switch' }],
+      })) {
+        events.push(event);
+      }
+    })();
 
-  it.skip('leaves the running turn on its original pinned mode after approval', () => {});
+    await waitFor(() => events.some((event) => event.event === 'mode_switch_required'));
+    expect(events.some((event) => event.event === 'done')).toBe(false);
+    expect((await harness.getSession(session.id))?.pending.modeSwitch?.to).toBe('agent');
 
-  it.skip('reports the denial to the model on deny', () => {});
+    await harness.decideModeSwitch(session.id, true);
+    await running;
+
+    expect(events.at(-1)?.event).toBe('done');
+  });
+
+  it('writes the session default mode on approval', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: toolEvents('c1', 'request_mode_switch', {
+            to: 'agent',
+            reason: 'need writes',
+          }),
+        },
+        { events: textEvents('ok') },
+      ]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'switch' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'mode_switch_required'));
+    await harness.decideModeSwitch(session.id, true);
+    await running;
+
+    expect((await harness.getSession(session.id))?.mode).toBe('agent');
+    expect(events.at(-1)).toMatchObject({ event: 'done', mode: 'agent' });
+  });
+
+  it('leaves the running turn on its original pinned mode after approval', async () => {
+    const provider = new FakeProvider([
+      {
+        events: toolEvents('c1', 'request_mode_switch', {
+          to: 'agent',
+          reason: 'need writes',
+        }),
+      },
+      {
+        events: toolEvents('c2', 'write_note', { key: 'k', body: 'v' }),
+      },
+      { events: textEvents('done') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, WRITE] });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'switch' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'mode_switch_required'));
+    await harness.decideModeSwitch(session.id, true);
+    await running;
+
+    expect((await harness.getSession(session.id))?.mode).toBe('agent');
+    const write = events.find(
+      (event) => event.event === 'tool' && (event as { name: string }).name === 'write_note',
+    );
+    expect(write).toMatchObject({ denied: true });
+    const secondTools = provider.calls[1]?.tools?.map((tool) => tool.name) ?? [];
+    expect(secondTools).not.toContain('write_note');
+  });
+
+  it('reports the denial to the model on deny', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: toolEvents('c1', 'request_mode_switch', {
+            to: 'agent',
+            reason: 'need writes',
+          }),
+        },
+        { events: textEvents('staying') },
+      ]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'switch' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'mode_switch_required'));
+    await harness.decideModeSwitch(session.id, false);
+    await running;
+
+    expect((await harness.getSession(session.id))?.mode).toBe('ask');
+    const tool = events.find((event) => event.event === 'tool');
+    expect(tool).toMatchObject({
+      event: 'tool',
+      name: 'request_mode_switch',
+      denied: true,
+    });
+    expect(String((tool as { result: string }).result)).toMatch(/denied/i);
+  });
 });
 
 describe('turn loop: prompt and skills', () => {

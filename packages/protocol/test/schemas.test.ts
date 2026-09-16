@@ -254,6 +254,33 @@ describe('stream events', () => {
     expect(event.event).toBe('ask_user_required');
   });
 
+  it('parses the plan-approval gate event', () => {
+    const event = StreamEventSchema.parse({
+      event: 'plan_approval_required',
+      sessionId: 's1',
+      planId: 'p1',
+      title: 'Restart',
+      steps: [{ summary: 'check status' }],
+      proposedAt: new Date().toISOString(),
+    });
+
+    expect(event.event).toBe('plan_approval_required');
+  });
+
+  it('parses the mode-switch gate event', () => {
+    const event = StreamEventSchema.parse({
+      event: 'mode_switch_required',
+      sessionId: 's1',
+      requestId: 'm1',
+      from: 'ask',
+      to: 'agent',
+      reason: 'need writes',
+      requestedAt: new Date().toISOString(),
+    });
+
+    expect(event.event).toBe('mode_switch_required');
+  });
+
   it('defaults a cancelled event to the operator reason', () => {
     const event = StreamEventSchema.parse({
       event: 'cancelled',

@@ -198,6 +198,8 @@ A turn is a stream of events:
 | `tool`                   | A completed tool call                |
 | `tool_approval_required` | A gate opened                        |
 | `ask_user_required`      | A question needs an answer           |
+| `plan_approval_required` | A proposed plan needs a decision     |
+| `mode_switch_required`   | An agent mode-switch needs a decision|
 | `usage`                  | Token accounting                     |
 | `done`                   | Terminal success                     |
 | `cancelled`              | Terminal cancellation                |

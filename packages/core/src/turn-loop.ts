@@ -6,19 +6,27 @@ import type {
   ChatModeId,
   ChatRequest,
   PendingAskUser,
+  PendingModeSwitch,
+  PendingPlan,
   PendingToolApproval,
+  PlanStep,
   Scope,
   StreamEvent,
   ToolEvent,
   TranscriptRow,
   UserTurnInput,
 } from '@evu/harness-protocol';
-import { AskUserQuestionSchema, BUILTIN_TOOL_NAMES } from '@evu/harness-protocol';
+import {
+  AskUserQuestionSchema,
+  BUILTIN_TOOL_NAMES,
+  ChatModeIdSchema,
+  PlanStepSchema,
+} from '@evu/harness-protocol';
 import type { ContextMenuRegistry } from './context-menus/index.js';
 import { abortError, isAbortError, type ProviderAdapter } from './fake-provider.js';
 import { GateCancelledError, GateNotFoundError, type GateWaiterRegistry } from './gate-waiters.js';
 import { digestToolCall, type GrantStore, grantForDecision, resolveGrant } from './grants.js';
-import { applyTurnPatch, type TurnPin } from './mode-pinning.js';
+import { applyTurnPatch, type ModeWriter, type TurnPin } from './mode-pinning.js';
 import type { ProviderCompleteInput } from './openai-client.js';
 import { mergeIntoLeadingSystemMessage } from './prompts.js';
 import {
@@ -59,6 +67,9 @@ export interface TurnController {
    * no longer pending — a late POST must not invent an exchange.
    */
   answerAskUser(sessionId: string, askId: string, answers: AskUserAnswer[]): Promise<void>;
+  approvePlan(sessionId: string): Promise<void>;
+  discardPlan(sessionId: string): Promise<void>;
+  decideModeSwitch(sessionId: string, approve: boolean): Promise<void>;
 }
 
 export interface TurnControllerDeps {
@@ -76,7 +87,8 @@ export interface TurnControllerDeps {
     workspaceId?: string;
     title?: string;
   }): Promise<{ id: string }>;
-  setSessionMode(sessionId: string, mode: ChatModeId): Promise<void>;
+  hasMode(id: ChatModeId): boolean;
+  writeSessionMode(sessionId: string, mode: ChatModeId, writer: ModeWriter): Promise<void>;
   maxToolRounds(): Promise<number>;
   askUserEnabled(): Promise<boolean>;
   now: () => string;
@@ -110,6 +122,8 @@ interface QueuedFollowUp {
  * every queued send as one turn (last send wins for the mode pin). Persistence
  * goes through `TurnPatch` so a concurrent set-mode cannot be clobbered.
  */
+type PlanGateDecision = 'approve' | 'discard';
+
 export function createTurnController(deps: TurnControllerDeps): TurnController {
   const live = new Map<string, LiveTurn>();
   const queues = new Map<string, QueuedFollowUp[]>();
@@ -164,6 +178,65 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
     }
     if (!deps.gates.resolve('ask_user', askId, answers)) {
       throw new GateNotFoundError('ask_user', askId);
+    }
+  }
+
+  async function decidePlan(sessionId: string, decision: PlanGateDecision): Promise<void> {
+    const record = await deps.store.get(sessionId);
+    if (record === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    const pending = record.pending.plan;
+    if (pending === null || !pending.awaitingApproval) {
+      throw new GateNotFoundError('plan', pending?.planId ?? 'none');
+    }
+
+    if (decision === 'approve') {
+      await mintPlanReceipts(deps, sessionId, record.workspaceId, pending.steps);
+      await deps.writeSessionMode(sessionId, 'agent', 'plan-approval');
+    }
+
+    const latest = await deps.store.get(sessionId);
+    if (latest === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    await deps.store.upsert({
+      ...latest,
+      pending: { ...latest.pending, plan: null },
+      updatedAt: deps.now(),
+    });
+
+    if (!deps.gates.resolve('plan', pending.planId, decision)) {
+      throw new GateNotFoundError('plan', pending.planId);
+    }
+  }
+
+  async function decideModeSwitch(sessionId: string, approve: boolean): Promise<void> {
+    const record = await deps.store.get(sessionId);
+    if (record === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    const pending = record.pending.modeSwitch;
+    if (pending === null) {
+      throw new GateNotFoundError('mode_switch', 'none');
+    }
+
+    if (approve) {
+      await deps.writeSessionMode(sessionId, pending.to, 'explicit-set-mode');
+    }
+
+    const latest = await deps.store.get(sessionId);
+    if (latest === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    await deps.store.upsert({
+      ...latest,
+      pending: { ...latest.pending, modeSwitch: null },
+      updatedAt: deps.now(),
+    });
+
+    if (!deps.gates.resolve('mode_switch', pending.requestId, approve)) {
+      throw new GateNotFoundError('mode_switch', pending.requestId);
     }
   }
 
@@ -243,6 +316,9 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
     cancel,
     decideToolApproval,
     answerAskUser,
+    approvePlan: (sessionId) => decidePlan(sessionId, 'approve'),
+    discardPlan: (sessionId) => decidePlan(sessionId, 'discard'),
+    decideModeSwitch,
     isLive: (sessionId) => live.has(sessionId),
   };
 }
@@ -280,7 +356,7 @@ async function* executeTurn(
     return;
   }
 
-  await deps.setSessionMode(sessionId, request.mode);
+  await deps.writeSessionMode(sessionId, request.mode, 'send-time-pin');
 
   const scope: Scope = loaded.workspaceId === undefined ? {} : { workspaceId: loaded.workspaceId };
   const pin = await deps.pinTurn({ sessionId, mode: request.mode, scope });
@@ -412,6 +488,34 @@ async function* executeTurn(
             usage,
           });
           break;
+        }
+
+        if (
+          call.name === BUILTIN_TOOL_NAMES.proposePlan ||
+          call.name === BUILTIN_TOOL_NAMES.requestModeSwitch
+        ) {
+          const gateOutcome = yield* runBuiltinGate(deps, {
+            sessionId,
+            pin,
+            scope,
+            call,
+            content,
+            reasoning,
+            turnTools,
+            usage,
+            signal: handle.controller.signal,
+          });
+          if (gateOutcome.kind === 'cancelled') {
+            terminal = await finishCancelled(deps, sessionId, handle, {
+              content,
+              reasoning,
+              tools: turnTools,
+              usage,
+            });
+            break;
+          }
+          record = gateOutcome.record;
+          continue;
         }
 
         if (call.name === BUILTIN_TOOL_NAMES.askUser) {
@@ -603,6 +707,348 @@ type StreamOutcome =
       usage: { promptTokens: number; completionTokens: number } | null;
       message: string;
     };
+
+type GateToolOutcome = { kind: 'answered'; record: SessionRecord } | { kind: 'cancelled' };
+
+/**
+ * Dispatch a builtin gate tool: propose_plan or request_mode_switch.
+ *
+ * Both suspend the turn via GateWaiterRegistry. Plan approval may write the
+ * session default to agent and mint one-shot receipts; mode-switch approval
+ * writes only the session default. Neither mutates the turn pin.
+ */
+async function* runBuiltinGate(
+  deps: TurnControllerDeps,
+  input: {
+    sessionId: string;
+    pin: TurnPin;
+    scope: Scope;
+    call: { id: string; name: string; arguments: Record<string, unknown> };
+    content: string;
+    reasoning: string;
+    turnTools: ToolEvent[];
+    usage: SessionRecord['usage'];
+    signal: AbortSignal;
+  },
+): AsyncGenerator<StreamEvent, GateToolOutcome> {
+  if (input.call.name === BUILTIN_TOOL_NAMES.proposePlan) {
+    return yield* runPlanGate(deps, input);
+  }
+  return yield* runModeSwitchGate(deps, input);
+}
+
+async function* runPlanGate(
+  deps: TurnControllerDeps,
+  input: {
+    sessionId: string;
+    pin: TurnPin;
+    scope: Scope;
+    call: { id: string; name: string; arguments: Record<string, unknown> };
+    content: string;
+    reasoning: string;
+    turnTools: ToolEvent[];
+    usage: SessionRecord['usage'];
+    signal: AbortSignal;
+  },
+): AsyncGenerator<StreamEvent, GateToolOutcome> {
+  const args = normalizeArgs(input.call.arguments);
+
+  if (!input.pin.toolNames.has(BUILTIN_TOOL_NAMES.proposePlan)) {
+    return yield* completeGateTool(deps, input, {
+      result: `Tool '${BUILTIN_TOOL_NAMES.proposePlan}' is not available in this mode.`,
+      denied: true,
+    });
+  }
+  if (!deps.tools.has(BUILTIN_TOOL_NAMES.proposePlan)) {
+    return yield* completeGateTool(deps, input, {
+      result: `Unknown tool: ${BUILTIN_TOOL_NAMES.proposePlan}`,
+      denied: true,
+    });
+  }
+
+  const parsed = parsePlanProposal(args);
+  if (parsed === null) {
+    return yield* completeGateTool(deps, input, {
+      result: `Tool '${BUILTIN_TOOL_NAMES.proposePlan}' was denied: title and steps are required.`,
+      denied: true,
+    });
+  }
+
+  const planId = deps.newId();
+  const pending: PendingPlan = {
+    planId,
+    title: parsed.title,
+    steps: parsed.steps,
+    awaitingApproval: true,
+    proposedAt: deps.now(),
+  };
+
+  const latestBefore = await deps.store.get(input.sessionId);
+  if (latestBefore === null) {
+    throw new Error(`Unknown session: ${input.sessionId}`);
+  }
+
+  await persist(deps, input.sessionId, {
+    transcript: upsertAssistantRow(latestBefore.transcript, {
+      kind: 'assistant',
+      text: input.content,
+      ...(input.turnTools.length === 0 ? {} : { tools: [...input.turnTools] }),
+      ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+      partial: true,
+      createdAt: deps.now(),
+    }),
+    pending: { ...latestBefore.pending, plan: pending },
+    usage: input.usage,
+  });
+
+  const waiter = deps.gates.open<PlanGateDecision>({
+    sessionId: input.sessionId,
+    kind: 'plan',
+    id: planId,
+  });
+
+  const waiting = waiter.wait(input.signal);
+
+  yield {
+    event: 'plan_approval_required',
+    sessionId: input.sessionId,
+    planId: pending.planId,
+    title: pending.title,
+    steps: pending.steps,
+    awaitingApproval: pending.awaitingApproval,
+    proposedAt: pending.proposedAt,
+  };
+
+  let decision: PlanGateDecision;
+  try {
+    decision = await waiting;
+  } catch (error) {
+    if (isAbortError(error) || input.signal.aborted || error instanceof GateCancelledError) {
+      return { kind: 'cancelled' };
+    }
+    throw error;
+  }
+
+  const result =
+    decision === 'approve'
+      ? `Plan "${pending.title}" approved. Session switched to agent mode. One-shot receipts minted for steps that named a tool. This turn remains in ${input.pin.mode} mode.`
+      : `Plan "${pending.title}" discarded. Session mode is unchanged.`;
+
+  return yield* completeGateTool(deps, input, { result, denied: false });
+}
+
+async function* runModeSwitchGate(
+  deps: TurnControllerDeps,
+  input: {
+    sessionId: string;
+    pin: TurnPin;
+    scope: Scope;
+    call: { id: string; name: string; arguments: Record<string, unknown> };
+    content: string;
+    reasoning: string;
+    turnTools: ToolEvent[];
+    usage: SessionRecord['usage'];
+    signal: AbortSignal;
+  },
+): AsyncGenerator<StreamEvent, GateToolOutcome> {
+  const args = normalizeArgs(input.call.arguments);
+
+  if (!input.pin.toolNames.has(BUILTIN_TOOL_NAMES.requestModeSwitch)) {
+    return yield* completeGateTool(deps, input, {
+      result: `Tool '${BUILTIN_TOOL_NAMES.requestModeSwitch}' is not available in this mode.`,
+      denied: true,
+    });
+  }
+  if (!deps.tools.has(BUILTIN_TOOL_NAMES.requestModeSwitch)) {
+    return yield* completeGateTool(deps, input, {
+      result: `Unknown tool: ${BUILTIN_TOOL_NAMES.requestModeSwitch}`,
+      denied: true,
+    });
+  }
+
+  const toRaw = args.to;
+  const reasonRaw = args.reason;
+  const toParsed = ChatModeIdSchema.safeParse(toRaw);
+  if (!toParsed.success || typeof reasonRaw !== 'string' || reasonRaw.trim() === '') {
+    return yield* completeGateTool(deps, input, {
+      result: `Tool '${BUILTIN_TOOL_NAMES.requestModeSwitch}' was denied: 'to' and 'reason' are required.`,
+      denied: true,
+    });
+  }
+  const to = toParsed.data;
+  if (!deps.hasMode(to)) {
+    return yield* completeGateTool(deps, input, {
+      result: `Tool '${BUILTIN_TOOL_NAMES.requestModeSwitch}' was denied: unknown mode '${to}'.`,
+      denied: true,
+    });
+  }
+
+  const requestId = deps.newId();
+  const pending: PendingModeSwitch = {
+    requestId,
+    from: input.pin.mode,
+    to,
+    reason: reasonRaw.trim(),
+    requestedAt: deps.now(),
+  };
+
+  const latestBefore = await deps.store.get(input.sessionId);
+  if (latestBefore === null) {
+    throw new Error(`Unknown session: ${input.sessionId}`);
+  }
+
+  await persist(deps, input.sessionId, {
+    transcript: upsertAssistantRow(latestBefore.transcript, {
+      kind: 'assistant',
+      text: input.content,
+      ...(input.turnTools.length === 0 ? {} : { tools: [...input.turnTools] }),
+      ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+      partial: true,
+      createdAt: deps.now(),
+    }),
+    pending: { ...latestBefore.pending, modeSwitch: pending },
+    usage: input.usage,
+  });
+
+  const waiter = deps.gates.open<boolean>({
+    sessionId: input.sessionId,
+    kind: 'mode_switch',
+    id: requestId,
+  });
+
+  const waiting = waiter.wait(input.signal);
+
+  yield {
+    event: 'mode_switch_required',
+    sessionId: input.sessionId,
+    requestId: pending.requestId,
+    from: pending.from,
+    to: pending.to,
+    reason: pending.reason,
+    requestedAt: pending.requestedAt,
+  };
+
+  let approved: boolean;
+  try {
+    approved = await waiting;
+  } catch (error) {
+    if (isAbortError(error) || input.signal.aborted || error instanceof GateCancelledError) {
+      return { kind: 'cancelled' };
+    }
+    throw error;
+  }
+
+  const result = approved
+    ? `Mode switch approved. Session default is now ${pending.to}. This turn remains in ${input.pin.mode} mode.`
+    : `Mode switch to ${pending.to} denied. Remaining in ${input.pin.mode} for this turn; session default unchanged.`;
+
+  return yield* completeGateTool(deps, input, { result, denied: !approved });
+}
+
+async function* completeGateTool(
+  deps: TurnControllerDeps,
+  input: {
+    sessionId: string;
+    call: { id: string; name: string; arguments: Record<string, unknown> };
+    content: string;
+    reasoning: string;
+    turnTools: ToolEvent[];
+    usage: SessionRecord['usage'];
+  },
+  outcome: { result: string; denied: boolean },
+): AsyncGenerator<StreamEvent, { kind: 'answered'; record: SessionRecord }> {
+  const args = normalizeArgs(input.call.arguments);
+  const event: ToolEvent = {
+    name: input.call.name,
+    arguments: args,
+    result: outcome.result,
+    ...(outcome.denied ? { denied: true } : {}),
+  };
+  input.turnTools.push(event);
+  yield {
+    event: 'tool',
+    name: event.name,
+    arguments: event.arguments,
+    result: event.result,
+    ...(event.denied === undefined ? {} : { denied: event.denied }),
+  };
+
+  const latest = await deps.store.get(input.sessionId);
+  if (latest === null) {
+    throw new Error(`Unknown session: ${input.sessionId}`);
+  }
+  const record = await persist(deps, input.sessionId, {
+    messages: [
+      ...latest.messages,
+      {
+        role: 'tool',
+        content: wrapUntrustedToolResult(input.call.name, outcome.result),
+        name: input.call.name,
+        toolCallId: input.call.id,
+      },
+    ],
+    transcript: upsertAssistantRow(latest.transcript, {
+      kind: 'assistant',
+      text: input.content,
+      tools: [...input.turnTools],
+      ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+      partial: true,
+      createdAt: deps.now(),
+    }),
+    usage: input.usage,
+  });
+  return { kind: 'answered', record };
+}
+
+function normalizeArgs(raw: Record<string, unknown>): Record<string, unknown> {
+  return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+function parsePlanProposal(
+  args: Record<string, unknown>,
+): { title: string; steps: PlanStep[] } | null {
+  const title = args.title;
+  const stepsRaw = args.steps;
+  if (typeof title !== 'string' || title.trim() === '' || !Array.isArray(stepsRaw)) {
+    return null;
+  }
+  const steps: PlanStep[] = [];
+  for (const entry of stepsRaw) {
+    const parsed = PlanStepSchema.safeParse(entry);
+    if (!parsed.success) {
+      return null;
+    }
+    steps.push(parsed.data);
+  }
+  return { title: title.trim(), steps };
+}
+
+async function mintPlanReceipts(
+  deps: TurnControllerDeps,
+  sessionId: string,
+  workspaceId: string | undefined,
+  steps: PlanStep[],
+): Promise<void> {
+  for (const step of steps) {
+    if (step.tool === undefined || step.tool === '') {
+      continue;
+    }
+    const args = step.arguments ?? {};
+    const grant = grantForDecision(
+      'allow_once',
+      {
+        sessionId,
+        workspaceId,
+        tool: step.tool,
+        digest: digestToolCall(step.tool, args),
+      },
+      deps.now(),
+    );
+    if (grant !== null) {
+      await deps.grants.add(grant);
+    }
+  }
+}
 
 /**
  * Suspend for an ask-user gate.

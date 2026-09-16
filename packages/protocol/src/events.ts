@@ -50,6 +50,18 @@ const AskUserRequiredEventSchema = PendingAskUserSchema.extend({
   sessionId: z.string(),
 });
 
+/** Emitted when `propose_plan` opens a gate. The turn stays suspended until decide. */
+const PlanApprovalRequiredEventSchema = PendingPlanSchema.extend({
+  event: z.literal('plan_approval_required'),
+  sessionId: z.string(),
+});
+
+/** Emitted when `request_mode_switch` opens a gate. */
+const ModeSwitchRequiredEventSchema = PendingModeSwitchSchema.extend({
+  event: z.literal('mode_switch_required'),
+  sessionId: z.string(),
+});
+
 const UsageEventSchema = z.object({
   event: z.literal('usage'),
   promptTokens: z.number().int().nonnegative(),
@@ -108,6 +120,8 @@ export const StreamEventSchema = z.discriminatedUnion('event', [
   ToolStreamEventSchema,
   ToolApprovalRequiredEventSchema,
   AskUserRequiredEventSchema,
+  PlanApprovalRequiredEventSchema,
+  ModeSwitchRequiredEventSchema,
   UsageEventSchema,
   DoneEventSchema,
   CancelledEventSchema,
@@ -122,6 +136,8 @@ export type ReasoningDeltaEvent = z.infer<typeof ReasoningDeltaEventSchema>;
 export type ToolStreamEvent = z.infer<typeof ToolStreamEventSchema>;
 export type ToolApprovalRequiredEvent = z.infer<typeof ToolApprovalRequiredEventSchema>;
 export type AskUserRequiredEvent = z.infer<typeof AskUserRequiredEventSchema>;
+export type PlanApprovalRequiredEvent = z.infer<typeof PlanApprovalRequiredEventSchema>;
+export type ModeSwitchRequiredEvent = z.infer<typeof ModeSwitchRequiredEventSchema>;
 export type UsageEvent = z.infer<typeof UsageEventSchema>;
 export type DoneEvent = z.infer<typeof DoneEventSchema>;
 export type CancelledEvent = z.infer<typeof CancelledEventSchema>;

@@ -17,12 +17,13 @@ import type {
   StreamEvent,
   ToolCatalogResponse,
 } from '@evu/harness-protocol';
+import { builtinGateTools } from './builtin-tools.js';
 import type { ContextMenuDefinition } from './context-menus/index.js';
 import { ContextMenuRegistry } from './context-menus/index.js';
 import type { ProviderAdapter } from './fake-provider.js';
 import { GateWaiterRegistry } from './gate-waiters.js';
 import type { GrantStore } from './grants.js';
-import { createTurnPin, setSessionMode, type TurnPin } from './mode-pinning.js';
+import { createTurnPin, type ModeWriter, setSessionMode, type TurnPin } from './mode-pinning.js';
 import { resolveContextWindow } from './model-catalog.js';
 import { type ModePolicy, ModeRegistry, STOCK_MODES } from './modes.js';
 import { OpenAICompatibleClient } from './openai-client.js';
@@ -160,6 +161,9 @@ export interface Harness {
     decision: ApprovalDecision,
   ): Promise<void>;
   answerAskUser(sessionId: string, askId: string, answers: AskUserAnswer[]): Promise<void>;
+  approvePlan(sessionId: string): Promise<void>;
+  discardPlan(sessionId: string): Promise<void>;
+  decideModeSwitch(sessionId: string, approve: boolean): Promise<void>;
 }
 
 function defaultIdFactory(): () => string {
@@ -171,7 +175,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
   const grants = config.grants ?? new InMemoryGrantStore();
   const settingsStore = config.settings ?? new InMemorySettingsStore();
   const modes = new ModeRegistry(config.modes ?? STOCK_MODES);
-  const tools = new ToolRegistry(config.tools ?? []);
+  const tools = new ToolRegistry([...(config.tools ?? []), ...builtinGateTools()]);
   const contextMenus = new ContextMenuRegistry(config.contextMenus ?? []);
   const hostPrompts: PromptConfig = config.prompts ?? {};
   const newId = config.idFactory ?? defaultIdFactory();
@@ -317,9 +321,10 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     getStoredProvider,
     pinTurn,
     createSession,
-    setSessionMode: async (sessionId, mode) => {
+    hasMode: (id) => modes.has(id),
+    writeSessionMode: async (sessionId, mode, writer: ModeWriter) => {
       const record = await loadRecord(sessionId);
-      await store.upsert(setSessionMode(record, mode, 'send-time-pin', now()));
+      await store.upsert(setSessionMode(record, mode, writer, now()));
     },
     maxToolRounds: async () => (await loadStored()).policies.maxToolRounds,
     askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
@@ -479,6 +484,9 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     decideToolApproval: (sessionId, approvalId, decision) =>
       turns.decideToolApproval(sessionId, approvalId, decision),
     answerAskUser: (sessionId, askId, answers) => turns.answerAskUser(sessionId, askId, answers),
+    approvePlan: (sessionId) => turns.approvePlan(sessionId),
+    discardPlan: (sessionId) => turns.discardPlan(sessionId),
+    decideModeSwitch: (sessionId, approve) => turns.decideModeSwitch(sessionId, approve),
   };
 }
 
