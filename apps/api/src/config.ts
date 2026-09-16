@@ -16,6 +16,9 @@ export interface DemoConfig {
    *
    * Deliberately not defaulted to a value: a hardcoded default token is worse than
    * no auth, because it looks like protection.
+   *
+   * Dev-only. `demoAuth` refuses this token when `NODE_ENV=production`, so a
+   * production image cannot enable shared-token mode by setting the env var.
    */
   token: string | undefined;
   /** Origin allowed by CORS. Unset means same-origin only, with no CORS at all. */

@@ -5,9 +5,21 @@ import {
   type Harness,
   mentionsMenu,
 } from '@evu/harness-core';
-import { type Actor, CAPABILITIES, createHarnessRouter } from '@evu/harness-server';
+import {
+  type Actor,
+  actorHasCapability,
+  CAPABILITIES,
+  createHarnessRouter,
+} from '@evu/harness-server';
 import type { Hono } from 'hono';
 import { beforeEach, describe, expect, it } from 'vitest';
+
+function authWith(capabilities: readonly string[]) {
+  return {
+    getActor: (): Actor => ({ id: 'tester', capabilities }),
+    requireCapability: actorHasCapability,
+  };
+}
 
 const MENTION_NODES = [
   {
@@ -627,6 +639,7 @@ describe('auth hooks', () => {
     app = createHarnessRouter({ harness: build(), auth: { getActor: () => null } });
 
     expect((await get('/status')).status).toBe(401);
+    expect(await (await get('/status')).json()).toEqual({ error: 'unauthenticated' });
   });
 
   it('still serves health when unauthenticated', async () => {
@@ -638,10 +651,7 @@ describe('auth hooks', () => {
   it('rejects a missing capability as forbidden', async () => {
     app = createHarnessRouter({
       harness: build(),
-      auth: {
-        getActor: (): Actor => ({ id: 'viewer', capabilities: [CAPABILITIES.read] }),
-        requireCapability: (actor, capability) => (actor?.capabilities ?? []).includes(capability),
-      },
+      auth: authWith([CAPABILITIES.read]),
     });
 
     // A viewer may read but must not be able to start a turn.
@@ -665,14 +675,50 @@ describe('auth hooks', () => {
   it('separates decide from chat capability', async () => {
     app = createHarnessRouter({
       harness: build(),
-      auth: {
-        getActor: (): Actor => ({ id: 'operator', capabilities: [CAPABILITIES.chat] }),
-        requireCapability: (actor, capability) => (actor?.capabilities ?? []).includes(capability),
-      },
+      auth: authWith([CAPABILITIES.chat]),
     });
 
     expect((await post('/sessions', { mode: 'ask' })).status).toBe(201);
     expect((await post('/sessions/s1/approve-plan', {})).status).toBe(403);
+  });
+
+  it('requires administer for settings writes and provider probes', async () => {
+    app = createHarnessRouter({
+      harness: build(),
+      auth: authWith([CAPABILITIES.read, CAPABILITIES.chat, CAPABILITIES.decide]),
+    });
+
+    expect((await get('/settings')).status).toBe(200);
+    expect(
+      (
+        await app.request('/settings', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+      ).status,
+    ).toBe(403);
+    expect((await post('/models', {})).status).toBe(403);
+    expect((await post('/test', {})).status).toBe(403);
+  });
+
+  it('allows a granted capability through to the handler', async () => {
+    app = createHarnessRouter({
+      harness: build(),
+      auth: authWith([CAPABILITIES.read, CAPABILITIES.chat, CAPABILITIES.administer]),
+    });
+
+    expect((await get('/status')).status).toBe(200);
+    expect((await post('/sessions', { mode: 'ask' })).status).toBe(201);
+    expect(
+      (
+        await app.request('/settings', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+      ).status,
+    ).toBe(200);
   });
 
   it('allows everything when no hooks are supplied', async () => {

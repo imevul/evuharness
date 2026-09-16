@@ -89,5 +89,18 @@ host supplies its own actor resolution and capability checks.
 - A host that skips those hooks has an unauthenticated harness. That is
   acceptable only for local development.
 - Capability checks belong on the server boundary, before a turn starts.
+- Named capabilities on the route surface:
+  - `harness:read` — status, sessions, settings reads, tools, menus, prompt preview
+  - `harness:chat` — create or delete a session, set mode or provider, stream a
+    turn, cancel
+  - `harness:decide` — resolve a tool approval, plan, mode-switch, or ask-user gate
+  - `harness:administer` — change settings, list models, test a provider connection
+- `/health` stays unauthenticated so liveness probes do not need credentials.
+- An unresolved actor yields `401`. A missing capability yields `403` and names
+  the capability in the body.
+- Hosts that store tokens on the actor may use the exported `actorHasCapability`
+  helper (exact match, or the `harness:*` wildcard) as `requireCapability`.
 - The demo application's shared-token mode is a development convenience and must
-  not be used as a production auth scheme.
+  not be used as a production auth scheme. The demo refuses to enable it when
+  `NODE_ENV=production`, so a production image cannot turn it on by setting
+  `EVUHARNESS_DEV_TOKEN`.
