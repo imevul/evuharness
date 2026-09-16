@@ -1915,7 +1915,70 @@ describe('turn loop: session persistence', () => {
     expect((await harness.getSession(session.id))?.title).toBe('Restart the api');
   });
 
-  it.skip('serializes concurrent turns on one session', () => {});
+  it('serializes concurrent turns on one session', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const base = new InMemorySessionStore();
+    const store: SessionStore = {
+      get: (id) => base.get(id),
+      upsert: async (record) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        await base.upsert(record);
+        inFlight -= 1;
+      },
+      delete: (id) => base.delete(id),
+      listSummaries: (options) => base.listSummaries(options),
+    };
+
+    const harness = runtime(
+      new FakeProvider([
+        { events: textEvents('one'), delayMs: 40 },
+        { echo: true },
+      ]),
+      { store },
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const firstEvents: StreamEvent[] = [];
+    const first = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'alpha' }],
+      })) {
+        firstEvents.push(event);
+      }
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const secondEvents = await collect(harness, session.id, 'beta');
+    await first;
+
+    // Follow-up queue + per-session store lock: at most one durable write at a time.
+    expect(maxInFlight).toBe(1);
+
+    const terminals = [firstEvents.at(-1), secondEvents.at(-1)].filter(Boolean);
+    expect(terminals.some((event) => event?.event === 'done')).toBe(true);
+    expect(
+      terminals.every(
+        (event) => event?.event === 'done' || event?.event === 'cancelled' || event === undefined,
+      ),
+    ).toBe(true);
+
+    const stored = await harness.store.get(session.id);
+    const userTexts = (stored?.messages ?? [])
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content);
+    expect(userTexts).toEqual(expect.arrayContaining(['alpha', 'beta']));
+    // No torn transcript: every assistant row is well-formed.
+    for (const row of stored?.transcript ?? []) {
+      if (row.kind === 'assistant') {
+        expect(typeof row.text).toBe('string');
+      }
+    }
+  });
 
   it('does not persist on every delta', async () => {
     const base = new InMemorySessionStore();
