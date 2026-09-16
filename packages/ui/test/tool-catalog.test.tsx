@@ -42,8 +42,8 @@ describe('ToolCatalogView', () => {
   });
 
   it('stays display-only without an editor callback', () => {
-    render(<ToolCatalogView mode="ask" tools={tools} />);
+    const { container } = render(<ToolCatalogView mode="ask" tools={tools} />);
     expect(screen.getByText('needs approval')).toBeTruthy();
-    expect(document.querySelector('[data-harness="tool-approval-select"]')).toBeNull();
+    expect(container.querySelector('[data-harness="tool-approval-select"]')).toBeNull();
   });
 });

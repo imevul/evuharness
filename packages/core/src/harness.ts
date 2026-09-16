@@ -39,6 +39,7 @@ import {
   effectiveToolApprovals,
   emptyStoredSettings,
   InMemorySettingsStore,
+  isPristineStoredSettings,
   type ProviderProfileInput,
   type SettingsStore,
   type StoredProviderProfile,
@@ -209,7 +210,8 @@ export function createHarness(config: HarnessConfig = {}): Harness {
    */
   async function loadStored() {
     const current = await settingsStore.get();
-    if (current.providers.length > 0) {
+    // After any UI write (providers, prompts, or tool approvals), the store wins.
+    if (!isPristineStoredSettings(current)) {
       return current;
     }
 

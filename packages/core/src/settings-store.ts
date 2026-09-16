@@ -64,6 +64,24 @@ export function emptyStoredSettings(): StoredSettings {
   };
 }
 
+/**
+ * True when the store still looks like a never-written default.
+ *
+ * Checking only `providers.length` would re-seed on every read when a host has
+ * policy (or prompt) edits but no provider profiles, wiping those saves.
+ */
+export function isPristineStoredSettings(settings: StoredSettings): boolean {
+  return (
+    settings.providers.length === 0 &&
+    settings.activeProviderId === null &&
+    settings.prompts.global === '' &&
+    Object.keys(settings.prompts.perMode).length === 0 &&
+    Object.keys(settings.policies.toolApprovals ?? {}).length === 0 &&
+    (settings.policies.askUserEnabled ?? true) === true &&
+    (settings.policies.maxToolRounds ?? 12) === 12
+  );
+}
+
 export function storedFromInput(input: ProviderProfileInput): StoredProviderProfile {
   return {
     id: input.id,
