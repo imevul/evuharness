@@ -65,10 +65,7 @@ export const MessageContentPartSchema = z.discriminatedUnion('type', [
 export type MessageContentPart = z.infer<typeof MessageContentPartSchema>;
 
 /** String content or OpenAI-compatible multimodal parts. */
-export const MessageContentSchema = z.union([
-  z.string(),
-  z.array(MessageContentPartSchema).min(1),
-]);
+export const MessageContentSchema = z.union([z.string(), z.array(MessageContentPartSchema).min(1)]);
 export type MessageContent = z.infer<typeof MessageContentSchema>;
 
 const ALLOWED_DATA_IMAGE = /^data:image\/(?:png|jpeg|jpg|gif|webp)(?:;|,)/i;

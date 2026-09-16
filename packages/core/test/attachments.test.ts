@@ -1,4 +1,9 @@
-import { FakeProvider, createHarness, sanitizeAttachments, buildUserMessageContent } from '@evu/harness-core';
+import {
+  buildUserMessageContent,
+  createHarness,
+  FakeProvider,
+  sanitizeAttachments,
+} from '@evu/harness-core';
 import { describe, expect, it } from 'vitest';
 
 describe('sanitizeAttachments', () => {
@@ -76,6 +81,7 @@ describe('attachments through the turn loop', () => {
     const provider = new FakeProvider([{ echo: true }]);
     const harness = createHarness({
       provider,
+      providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
       features: { attachments: true },
     });
     const session = await harness.createSession({ mode: 'ask' });
@@ -119,6 +125,7 @@ describe('attachments through the turn loop', () => {
     const provider = new FakeProvider([{ echo: true }]);
     const harness = createHarness({
       provider,
+      providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
       features: { attachments: false },
     });
     const session = await harness.createSession({ mode: 'ask' });

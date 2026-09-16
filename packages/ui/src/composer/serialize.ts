@@ -100,7 +100,10 @@ export function createChipElement(doc: Document, ref: ComposerChipRef): HTMLElem
 }
 
 /** Build an attachment chip that serializes into `attachments[]` plus a wire token. */
-export function createAttachmentChipElement(doc: Document, attachment: ComposerAttachment): HTMLElement {
+export function createAttachmentChipElement(
+  doc: Document,
+  attachment: ComposerAttachment,
+): HTMLElement {
   const chip = doc.createElement('span');
   chip.dataset.harness = 'chip';
   chip.dataset.kind = 'attachment';
@@ -618,10 +621,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function readFileAsText(file: File): Promise<string | undefined> {
   // Skip obviously binary types; the model gets a name-only stub instead.
-  if (
-    mimeLooksBinary(file.type) ||
-    file.size > 256 * 1024
-  ) {
+  if (mimeLooksBinary(file.type) || file.size > 256 * 1024) {
     return Promise.resolve(undefined);
   }
   return new Promise((resolve, reject) => {
@@ -662,8 +662,10 @@ export function insertAttachmentAtCaret(
 ): ComposerValue {
   const before = value.text.slice(0, value.caret);
   const after = value.text.slice(value.caret);
-  const spacerBefore = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
-  const spacerAfter = after.length > 0 && !after.startsWith(' ') && !after.startsWith('\n') ? ' ' : '';
+  const spacerBefore =
+    before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
+  const spacerAfter =
+    after.length > 0 && !after.startsWith(' ') && !after.startsWith('\n') ? ' ' : '';
   const inserted = `${spacerBefore}${attachment.token}${spacerAfter}`;
   return {
     text: `${before}${inserted}${after}`,

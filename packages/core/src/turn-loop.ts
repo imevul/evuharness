@@ -744,7 +744,7 @@ async function* streamProvider(
         case 'message':
           message = event.message;
           if (event.message.content !== '' && content === '') {
-            content = event.message.content;
+            content = textFromMessageContent(event.message.content);
           }
           break;
       }
@@ -1712,10 +1712,7 @@ async function resolveUserTurns(
         ? text
         : `${text}\n\n<context>\n${contextBlocks.join('\n\n')}\n</context>`;
 
-    const attachments = sanitizeAttachments(
-      input.attachments,
-      deps.attachmentsEnabled === true,
-    );
+    const attachments = sanitizeAttachments(input.attachments, deps.attachmentsEnabled === true);
     const content = buildUserMessageContent(baseText, attachments);
     const rowAttachments = transcriptAttachments(attachments);
 

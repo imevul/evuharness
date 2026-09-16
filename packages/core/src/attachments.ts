@@ -137,9 +137,7 @@ export function transcriptAttachments(
         mimeType: attachment.mimeType,
         ...(attachment.size === undefined ? {} : { size: attachment.size }),
         // Keep allowlisted https URLs for transcript preview; drop data URLs.
-        ...(attachment.url !== undefined &&
-        attachment.url.startsWith('https:') &&
-        isAllowedAttachmentUrl(attachment.url)
+        ...(attachment.url?.startsWith('https:') && isAllowedAttachmentUrl(attachment.url)
           ? { url: attachment.url }
           : {}),
       };
