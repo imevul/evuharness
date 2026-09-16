@@ -231,13 +231,21 @@ pre {
 [data-harness="composer-input"] {
   width: 100%;
   min-height: 72px;
-  resize: vertical;
   background: var(--panel);
   color: inherit;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+[data-harness="composer-input"][data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  pointer-events: none;
 }
 
 [data-harness="composer-actions"] {
@@ -245,18 +253,23 @@ pre {
   justify-content: space-between;
 }
 
-[data-harness="composer-chips"] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-[data-harness="chip"] {
+[data-harness="composer-input"] [data-harness="chip"] {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   background: #223049;
   border: 1px solid var(--accent);
   border-radius: 999px;
   padding: 1px 8px;
+  margin: 0 1px;
   font-size: 0.85em;
+  vertical-align: baseline;
+  user-select: none;
+}
+
+[data-harness="chip-icon"] {
+  color: var(--muted);
+  font-size: 0.9em;
 }
 
 /*

@@ -3,7 +3,6 @@ import {
   type ContextMenuDescriptor,
   type ContextMenuItem,
   type ContextMenuNode,
-  type ContextRef,
   defaultToken,
   detectTrigger,
   findItem,
@@ -14,19 +13,10 @@ import {
   type TriggerMatch,
 } from '@evu/harness-protocol';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ComposerChipRef, ComposerValue } from '../composer/serialize.js';
 
-export interface ComposerValue {
-  text: string;
-  caret: number;
-  /**
-   * Structured picks accumulated for this draft.
-   *
-   * Carried alongside the text rather than derived from it: the runtime should
-   * never have to parse prose to learn what the user selected. Tokens in the text
-   * are for humans and the model to read.
-   */
-  refs: ContextRef[];
-}
+export type { ComposerChipRef, ComposerValue } from '../composer/serialize.js';
+export { toWireRefs } from '../composer/serialize.js';
 
 /** How the hook loads a menu level. Usually `client.contextMenuItems`. */
 export type ContextMenuFetcher = (
@@ -72,6 +62,9 @@ export interface ContextMenuState {
  *
  * Detection, insertion, and chip resolution come from the protocol engine, so this
  * hook and the runtime agree on what the text means by construction.
+ *
+ * On commit, the wire text always receives the stable token (`@service:api`). The
+ * human-facing chip label is presentation only and is painted by the composer.
  */
 export function useContextMenu(options: UseContextMenuOptions): ContextMenuState {
   const { menus, fetchItems, value, onChange, debounceMs = 120 } = options;
@@ -171,22 +164,33 @@ export function useContextMenu(options: UseContextMenuOptions): ContextMenuState
       });
 
       const token = defaultToken({ trigger: match.trigger, path, itemId: item.id });
-      const insertion = chip === null ? token : chip.label;
+      // Chips put the stable token in the wire text; plain-text picks insert the
+      // row label (emoji / snippet) and still record a structured ref.
+      const insertion = chip === null ? item.label : token;
       const next = applyPickToText(value.text, match, insertion);
+
+      const ref: ComposerChipRef = {
+        menu: menu.id,
+        path,
+        id: item.id,
+        token: insertion,
+        label: chip?.label ?? item.label,
+        asChip: chip !== null,
+        ...(chip?.icon !== undefined && chip.icon !== '' ? { icon: chip.icon } : {}),
+        ...(chip !== null ? { tone: chip.tone } : {}),
+        ...(item.payload === undefined ? {} : { payload: item.payload }),
+      };
+
+      // For chip picks the wire token is `defaultToken`, which may differ from the
+      // display label. Keep `token` as the exact bytes sitting in `text`.
+      if (chip !== null) {
+        ref.token = token;
+      }
 
       onChange({
         text: next.text,
         caret: next.caret,
-        refs: [
-          ...value.refs,
-          {
-            menu: menu.id,
-            path,
-            id: item.id,
-            token,
-            ...(item.payload === undefined ? {} : { payload: item.payload }),
-          },
-        ],
+        refs: [...value.refs, ref],
       });
 
       // The trigger text is gone, so there is nothing left to dismiss; clearing the
@@ -236,7 +240,7 @@ export function useContextMenu(options: UseContextMenuOptions): ContextMenuState
 /** Resolve a ref back to its item, for rendering a chip from a stored draft. */
 export function itemForRef(
   nodes: readonly ContextMenuNode[],
-  ref: ContextRef,
+  ref: { path: string[]; id: string },
 ): ContextMenuItem | null {
   return findItem(nodes, ref.path, ref.id);
 }

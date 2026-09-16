@@ -39,7 +39,18 @@ export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCat
 export { Transcript, type TranscriptProps } from './components/Transcript.js';
 export { UsageFooter, type UsageFooterProps } from './components/UsageFooter.js';
 export {
+  type ComposerChipRef,
   type ComposerValue,
+  createChipElement,
+  deleteChipAfterCaret,
+  deleteChipBeforeCaret,
+  mergeComposerRefs,
+  paintComposer,
+  serializeComposer,
+  setComposerCaret,
+  toWireRefs,
+} from './composer/serialize.js';
+export {
   type ContextMenuFetcher,
   type ContextMenuState,
   itemForRef,
