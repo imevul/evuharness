@@ -495,19 +495,17 @@ describe('turn loop: cancellation', () => {
     const session = await harness.createSession({ mode: 'agent' });
 
     const events: StreamEvent[] = [];
-    const running = (async () => {
-      for await (const event of harness.runTurn({
-        sessionId: session.id,
-        mode: 'agent',
-        messages: [{ text: 'hi' }],
-      })) {
-        events.push(event);
-        if (event.event === 'tool_approval_required') {
-          await harness.cancel(session.id, 'operator');
-        }
+    for await (const event of harness.runTurn({
+      sessionId: session.id,
+      mode: 'agent',
+      messages: [{ text: 'hi' }],
+    })) {
+      events.push(event);
+      if (event.event === 'tool_approval_required') {
+        // Do not await: cancel waits for this generator to finish.
+        void harness.cancel(session.id, 'operator');
       }
-    })();
-    await running;
+    }
 
     const approval = events.find((event) => event.event === 'tool_approval_required');
     expect(approval).toMatchObject({ event: 'tool_approval_required' });

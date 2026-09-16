@@ -584,6 +584,10 @@ async function* awaitApproval(
     id: approval.approvalId,
   });
 
+  // Start waiting before yielding so a cancel that arrives while the consumer
+  // handles the event rejects a promise that already has a listener.
+  const waiting = waiter.wait(signal);
+
   yield {
     event: 'tool_approval_required',
     sessionId: pin.sessionId,
@@ -592,7 +596,7 @@ async function* awaitApproval(
 
   let decision: ApprovalDecision;
   try {
-    decision = await waiter.wait(signal);
+    decision = await waiting;
   } catch (error) {
     await removePendingToolApproval(deps, pin.sessionId, approval.approvalId);
     if (error instanceof GateCancelledError || isAbortError(error) || signal.aborted) {
