@@ -204,6 +204,40 @@ describe('turn loop: streaming', () => {
     );
   });
 
+  it('persists reasoning on the transcript row and echoes it on done, not in content', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: [
+            { kind: 'reasoning_delta', text: 'plan A' },
+            { kind: 'delta', text: 'ship it' },
+            { kind: 'message', message: { role: 'assistant', content: 'ship it' } },
+          ],
+        },
+      ]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+    const events = await collect(harness, session.id);
+    const done = events.find((event) => event.event === 'done');
+    const stored = await harness.store.get(session.id);
+    const assistant = stored?.transcript.find((row) => row.kind === 'assistant');
+
+    expect(done).toMatchObject({
+      event: 'done',
+      content: 'ship it',
+      reasoning: 'plan A',
+    });
+    expect(assistant).toMatchObject({
+      text: 'ship it',
+      reasoning: 'plan A',
+    });
+    expect(stored?.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: 'ship it',
+    });
+    expect(JSON.stringify(stored?.messages)).not.toContain('plan A');
+  });
+
   it('reports token usage and accumulates session totals', async () => {
     const harness = runtime(new FakeProvider([{ events: textEvents('ok') }]));
     const session = await harness.createSession({ mode: 'ask' });
@@ -423,6 +457,34 @@ describe('turn loop: cancellation', () => {
 
     expect(events.some((event) => event.event === 'delta')).toBe(true);
     expect(events.at(-1)?.event).toBe('cancelled');
+  });
+
+  it('does not mark a cancel quiet when only reasoning was produced', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: [
+            { kind: 'reasoning_delta', text: 'still thinking' },
+            { kind: 'delta', text: 'should not land' },
+            {
+              kind: 'message',
+              message: { role: 'assistant', content: 'should not land' },
+            },
+          ],
+          delayMs: 40,
+        },
+      ]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+    const events = await collectCancellingOn(harness, session.id, 'reasoning_delta');
+    const cancelled = events.find((event) => event.event === 'cancelled');
+
+    expect(cancelled).toMatchObject({
+      event: 'cancelled',
+      quiet: false,
+      content: '',
+      reasoning: 'still thinking',
+    });
   });
 
   it('persists whatever text was produced before the cancel', async () => {

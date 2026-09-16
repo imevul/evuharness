@@ -442,6 +442,9 @@ function applyEvent(event: StreamEvent, sinks: EventSinks): void {
             kind: 'assistant',
             text: event.content,
             ...(event.tools.length === 0 ? {} : { tools: event.tools }),
+            ...(event.reasoning === undefined || event.reasoning === ''
+              ? {}
+              : { reasoning: event.reasoning }),
             ...(event.event === 'cancelled' ? { cancelled: true } : {}),
           },
         ]);

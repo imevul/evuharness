@@ -482,7 +482,7 @@ async function* executeTurn(
           tools: turnTools,
           usage,
         });
-        terminal = doneEvent(record, content, turnTools);
+        terminal = doneEvent(record, content, turnTools, reasoning);
         break;
       }
 
@@ -1810,7 +1810,8 @@ async function finishCancelled(
   });
 
   const reason = handle.reason ?? 'operator';
-  const quiet = input.content === '' && input.tools.length === 0;
+  // Reasoning alone is still worth showing; only a truly empty cancel is quiet.
+  const quiet = input.content === '' && input.tools.length === 0 && input.reasoning === '';
   return {
     event: 'cancelled',
     sessionId,
@@ -1818,6 +1819,7 @@ async function finishCancelled(
     mode: latest.mode,
     title: latest.title,
     tools: input.tools,
+    ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
     pendingToolApprovals: [],
     pendingPlan: null,
     pendingModeSwitch: null,
@@ -1863,7 +1865,12 @@ function usageEvent(
   };
 }
 
-function doneEvent(record: SessionRecord, content: string, tools: ToolEvent[]): StreamEvent {
+function doneEvent(
+  record: SessionRecord,
+  content: string,
+  tools: ToolEvent[],
+  reasoning: string,
+): StreamEvent {
   return {
     event: 'done',
     sessionId: record.id,
@@ -1871,6 +1878,7 @@ function doneEvent(record: SessionRecord, content: string, tools: ToolEvent[]): 
     mode: record.mode,
     title: record.title,
     tools,
+    ...(reasoning === '' ? {} : { reasoning }),
     pendingToolApprovals: [],
     pendingPlan: null,
     pendingModeSwitch: null,

@@ -306,6 +306,28 @@ describe('stream events', () => {
       event: 'reasoning_delta',
     });
   });
+
+  it('accepts optional reasoning on terminal events without folding it into content', () => {
+    const done = StreamEventSchema.parse({
+      event: 'done',
+      sessionId: 's1',
+      content: 'answer',
+      reasoning: 'thoughts',
+      mode: 'ask',
+      title: 'Chat',
+    });
+    const cancelled = StreamEventSchema.parse({
+      event: 'cancelled',
+      sessionId: 's1',
+      content: '',
+      reasoning: 'partial thoughts',
+      mode: 'ask',
+      title: 'Chat',
+    });
+
+    expect(done).toMatchObject({ content: 'answer', reasoning: 'thoughts' });
+    expect(cancelled).toMatchObject({ content: '', reasoning: 'partial thoughts' });
+  });
 });
 
 describe('status snapshot', () => {
