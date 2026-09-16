@@ -70,6 +70,14 @@ const EMPTY_GATES: PendingGates = {
   askUser: null,
 };
 
+interface QueuedSend {
+  text: string;
+  refs: ContextRef[];
+  provider?: ProviderOverride;
+  /** Draft mode captured at the moment this message was queued. */
+  mode: ChatModeId;
+}
+
 /**
  * Session state plus the streaming turn.
  *
@@ -88,6 +96,13 @@ const EMPTY_GATES: PendingGates = {
  * with, and the next message picks up whatever the control shows at send time. A
  * UI that wrote the draft straight through to the session would let a keystroke
  * change the tool policy of a turn already choosing tools.
+ *
+ * ## Follow-up queue
+ *
+ * Sends that arrive while a turn is live are queued, the live turn is cancelled
+ * as `follow_up`, and the queue is drained as one next chat request (last send
+ * wins for the mode pin). That matches the core drain and avoids racing several
+ * concurrent `/chat` streams for the same session.
  */
 export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSessionState {
   const { client, sessionId, initialMode, workspaceId } = options;
@@ -100,6 +115,15 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
   const [draftMode, setDraftMode] = useState<ChatModeId>(initialMode);
 
   const abort = useRef<AbortController | null>(null);
+  const followUpQueue = useRef<QueuedSend[]>([]);
+  const draining = useRef(false);
+  // Keep the latest ids for the drain loop without re-creating it every render.
+  const sessionIdRef = useRef(sessionId);
+  const workspaceIdRef = useRef(workspaceId);
+  const clientRef = useRef(client);
+  sessionIdRef.current = sessionId;
+  workspaceIdRef.current = workspaceId;
+  clientRef.current = client;
 
   const reload = useCallback(async () => {
     if (sessionId === null) {
@@ -128,53 +152,109 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
   // writing into state after unmount and the socket stayed open.
   useEffect(() => () => abort.current?.abort(), []);
 
+  const drainFollowUps = useCallback(async () => {
+    if (draining.current) {
+      return;
+    }
+    draining.current = true;
+
+    try {
+      while (followUpQueue.current.length > 0) {
+        const batch = followUpQueue.current.splice(0);
+        const last = batch[batch.length - 1];
+        if (last === undefined) {
+          break;
+        }
+
+        const controller = new AbortController();
+        abort.current = controller;
+        setError(null);
+        setTurn({
+          phase: 'started',
+          content: '',
+          reasoning: '',
+          tools: [],
+          mode: last.mode,
+        });
+
+        try {
+          const stream = clientRef.current.chat(
+            {
+              ...(sessionIdRef.current === null ? {} : { sessionId: sessionIdRef.current }),
+              ...(workspaceIdRef.current === undefined
+                ? {}
+                : { workspaceId: workspaceIdRef.current }),
+              mode: last.mode,
+              messages: batch.map((entry) => ({
+                text: entry.text,
+                refs: entry.refs,
+              })),
+              ...(last.provider === undefined ? {} : { provider: last.provider }),
+            },
+            controller.signal,
+          );
+
+          for await (const event of stream) {
+            applyEvent(event, { setTurn, setSession, setTranscript, setPending, setError });
+            if (isTerminalEvent(event)) break;
+          }
+        } catch (cause) {
+          // An abort is a cancel the user asked for, not a failure to report.
+          if (!controller.signal.aborted) {
+            setError(cause instanceof Error ? cause.message : 'stream_failed');
+          }
+        } finally {
+          if (abort.current === controller) abort.current = null;
+          setTurn(null);
+        }
+      }
+    } finally {
+      draining.current = false;
+      // A send may have enqueued after the while check but before this flag cleared.
+      if (followUpQueue.current.length > 0) {
+        await drainFollowUps();
+      }
+    }
+  }, []);
+
   const send = useCallback(
     async (input: { text: string; refs?: ContextRef[]; provider?: ProviderOverride }) => {
-      // Read once, here: this is the send-time pin. Everything downstream uses this
-      // value, not the state, so a mode change during the turn cannot reach it.
+      // Read once, here: this is the send-time pin for this queued entry.
       const pinnedMode = draftMode;
 
-      const controller = new AbortController();
-      abort.current?.abort();
-      abort.current = controller;
-
-      setError(null);
-      setTurn({ phase: 'started', content: '', reasoning: '', tools: [], mode: pinnedMode });
+      followUpQueue.current.push({
+        text: input.text,
+        refs: input.refs ?? [],
+        ...(input.provider === undefined ? {} : { provider: input.provider }),
+        mode: pinnedMode,
+      });
 
       // Echo the user's message immediately. The server persists it too, but waiting
       // for the round trip makes the composer feel like it dropped the message.
       setTranscript((rows) => [...rows, { kind: 'user', text: input.text }]);
 
-      try {
-        const stream = client.chat(
-          {
-            ...(sessionId === null ? {} : { sessionId }),
-            ...(workspaceId === undefined ? {} : { workspaceId }),
-            mode: pinnedMode,
-            messages: [{ text: input.text, refs: input.refs ?? [] }],
-            ...(input.provider === undefined ? {} : { provider: input.provider }),
-          },
-          controller.signal,
-        );
-
-        for await (const event of stream) {
-          applyEvent(event, { setTurn, setSession, setTranscript, setPending, setError });
-          if (isTerminalEvent(event)) break;
+      if (draining.current) {
+        // Cancel the live turn as a follow-up; the drain loop picks up the queue
+        // after the cancelled terminal arrives. Do not abort the reader — that
+        // would drop the cancelled event the transcript needs.
+        if (sessionId !== null) {
+          try {
+            await client.cancel(sessionId, 'follow_up');
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'cancel_failed');
+          }
         }
-      } catch (cause) {
-        // An abort is a cancel the user asked for, not a failure to report.
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : 'stream_failed');
-        }
-      } finally {
-        if (abort.current === controller) abort.current = null;
-        setTurn(null);
+        return;
       }
+
+      await drainFollowUps();
     },
-    [client, sessionId, workspaceId, draftMode],
+    [client, sessionId, draftMode, drainFollowUps],
   );
 
   const cancel = useCallback(async () => {
+    // Operator cancel drops any queued follow-ups; the user asked to stop.
+    followUpQueue.current = [];
     if (sessionId !== null) {
       // Server first: it has to stop the provider call and persist the partial
       // result. Aborting only the local reader would leave the turn running.
