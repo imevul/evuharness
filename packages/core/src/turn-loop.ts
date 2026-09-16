@@ -91,6 +91,13 @@ export interface TurnControllerDeps {
   writeSessionMode(sessionId: string, mode: ChatModeId, writer: ModeWriter): Promise<void>;
   maxToolRounds(): Promise<number>;
   askUserEnabled(): Promise<boolean>;
+  /**
+   * Effective approval rule for a tool name after settings overrides.
+   *
+   * Builtins always resolve to `always_allow`. Unknown names fail closed to
+   * `requires_approval`.
+   */
+  toolApprovalRule(name: string): Promise<'always_allow' | 'requires_approval'>;
   now: () => string;
 }
 
@@ -1347,7 +1354,7 @@ async function* executeTool(
     denied = true;
   } else {
     const registration = deps.tools.get(call.name);
-    if (registration.spec.approval === 'requires_approval') {
+    if ((await deps.toolApprovalRule(call.name)) === 'requires_approval') {
       const digest = digestToolCall(call.name, args);
       const granted = await resolveGrant(deps.grants, {
         sessionId: pin.sessionId,

@@ -1709,3 +1709,23 @@ describe('checklist guard', () => {
     expect(typeof harness.pinTurn).toBe('function');
   });
 });
+
+describe('turn loop: settings approval policy', () => {
+  it('settings always_allow skips the approval gate on future calls', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'write_note', { key: 'a' }) },
+      { events: textEvents('done') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, WRITE] });
+    await harness.updateSettings({
+      policies: { toolApprovals: { write_note: 'always_allow' } },
+    });
+    const session = await harness.createSession({ mode: 'agent' });
+    const events = await collect(harness, session.id, 'write', 'agent');
+    expect(events.some((event) => event.event === 'tool_approval_required')).toBe(false);
+    expect(events.some((event) => event.event === 'tool' && event.name === 'write_note')).toBe(
+      true,
+    );
+    expect(events.at(-1)?.event).toBe('done');
+  });
+});

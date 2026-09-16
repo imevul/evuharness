@@ -453,6 +453,28 @@ describe('prompt preview', () => {
 });
 
 describe('tool catalog', () => {
+  it('patches per-tool approval policy and reflects it in the catalog', async () => {
+    const patch = await app.request('/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        policies: { toolApprovals: { restart_service: 'always_allow' } },
+      }),
+    });
+    expect(patch.status).toBe(200);
+    const settings = (await patch.json()) as {
+      policies: { toolApprovals: Record<string, string> };
+    };
+    expect(settings.policies.toolApprovals.restart_service).toBe('always_allow');
+
+    const catalog = (await (await get('/tools?mode=agent')).json()) as {
+      tools: { name: string; approval: string }[];
+    };
+    expect(catalog.tools.find((tool) => tool.name === 'restart_service')?.approval).toBe(
+      'always_allow',
+    );
+  });
+
   it('flags availability for the requested mode', async () => {
     const body = (await (await get('/tools?mode=ask')).json()) as {
       tools: { name: string; availableInMode: boolean }[];

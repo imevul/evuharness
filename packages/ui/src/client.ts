@@ -202,8 +202,12 @@ export class HarnessClient {
     return this.request(`${ROUTES.promptPreview}?${params.toString()}`);
   }
 
-  tools(): Promise<ToolCatalogResponse> {
-    return this.request(ROUTES.tools);
+  tools(mode?: string): Promise<ToolCatalogResponse> {
+    if (mode === undefined) {
+      return this.request(ROUTES.tools);
+    }
+    const params = new URLSearchParams({ mode });
+    return this.request(`${ROUTES.tools}?${params.toString()}`);
   }
 
   contextMenus(): Promise<ContextMenuCatalogResponse> {

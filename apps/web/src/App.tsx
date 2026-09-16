@@ -4,6 +4,7 @@ import type {
   HarnessSettings,
   SessionSummary,
   StatusResponse,
+  ToolCatalogEntry,
 } from '@evu/harness-protocol';
 import {
   Composer,
@@ -12,6 +13,7 @@ import {
   ProviderSettings,
   SessionSidebar,
   StatusBar,
+  ToolCatalogView,
   Transcript,
   useHarnessSession,
 } from '@evu/harness-ui';
@@ -210,7 +212,17 @@ export function App() {
 
 function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () => void }) {
   const [settings, setSettings] = useState<HarnessSettings | null>(null);
+  const [tools, setTools] = useState<ToolCatalogEntry[] | null>(null);
+  const [catalogMode, setCatalogMode] = useState<ChatModeId>('agent');
   const [error, setError] = useState<string | null>(null);
+
+  const refreshCatalog = useCallback(
+    async (mode: ChatModeId) => {
+      const catalog = await client.tools(mode);
+      setTools(catalog.tools);
+    },
+    [client],
+  );
 
   useEffect(() => {
     void client
@@ -220,6 +232,12 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
         setError(cause instanceof Error ? cause.message : String(cause));
       });
   }, [client]);
+
+  useEffect(() => {
+    void refreshCatalog(catalogMode).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    });
+  }, [catalogMode, refreshCatalog]);
 
   if (error !== null) {
     return (
@@ -234,7 +252,7 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
     );
   }
 
-  if (settings === null) {
+  if (settings === null || tools === null) {
     return (
       <main className="settings">
         <p>Loading settings…</p>
@@ -250,14 +268,52 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
           Back to chat
         </button>
       </header>
-      <ProviderSettings
-        settings={settings}
-        onChange={async (update) => {
-          setSettings(await client.updateSettings(update));
-        }}
-        onTest={async (providerId) => client.testConnection({ providerId })}
-        onListModels={async (providerId) => (await client.listModels({ providerId })).models}
-      />
+      <div className="settings-panels">
+        <ProviderSettings
+          settings={settings}
+          onChange={async (update) => {
+            setSettings(await client.updateSettings(update));
+          }}
+          onTest={async (providerId) => client.testConnection({ providerId })}
+          onListModels={async (providerId) => (await client.listModels({ providerId })).models}
+        />
+        <section data-harness="tool-catalog-settings">
+          <header data-harness="tool-catalog-settings-header">
+            <h2>Tools</h2>
+            <label>
+              Mode
+              <select
+                value={catalogMode}
+                onChange={(event) => setCatalogMode(event.target.value as ChatModeId)}
+                aria-label="Catalog mode"
+              >
+                {(settings.modes.length > 0 ? settings.modes : ['ask', 'plan', 'agent']).map(
+                  (mode) => (
+                    <option key={mode} value={mode}>
+                      {mode}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+          </header>
+          <p data-harness="tool-catalog-settings-hint">
+            Availability follows the selected mode. Approval policy applies to future tool calls.
+          </p>
+          <ToolCatalogView
+            mode={catalogMode}
+            tools={tools}
+            onApprovalChange={async (toolName, rule) => {
+              setSettings(
+                await client.updateSettings({
+                  policies: { toolApprovals: { [toolName]: rule } },
+                }),
+              );
+              await refreshCatalog(catalogMode);
+            }}
+          />
+        </section>
+      </div>
     </main>
   );
 }
