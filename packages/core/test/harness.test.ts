@@ -23,7 +23,7 @@ describe('createHarness defaults', () => {
       modes: ['ask', 'plan', 'agent'],
       activeProviderId: null,
       providerConfigured: false,
-      toolCount: 0,
+      toolCount: 2,
       contextMenuCount: 0,
     });
   });
@@ -319,8 +319,9 @@ describe('tool catalog', () => {
 
     const catalog = instance.toolCatalog('ask');
 
-    expect(catalog.tools).toHaveLength(2);
+    expect(catalog.tools).toHaveLength(4);
     expect(catalog.tools.find((tool) => tool.name === 'write')?.availableInMode).toBe(false);
+    expect(catalog.tools.find((tool) => tool.name === 'propose_plan')?.availableInMode).toBe(true);
   });
 });
 

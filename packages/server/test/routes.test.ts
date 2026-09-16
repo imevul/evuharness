@@ -77,7 +77,7 @@ describe('health and status', () => {
       ready: true,
       modes: ['ask', 'plan', 'agent'],
       activeProvider: null,
-      toolCount: 2,
+      toolCount: 4,
       contextMenuCount: 2,
     });
   });
@@ -223,12 +223,34 @@ describe('chat', () => {
 });
 
 describe('gates', () => {
-  it.each(['/sessions/s1/approve-plan', '/sessions/s1/discard-plan', '/sessions/s1/mode-switch'])(
-    'reports 501 for %s',
-    async (path) => {
-      expect((await post(path, {})).status).toBe(501);
-    },
-  );
+  it('returns 404 when approving a plan with no open gate', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider(),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+    });
+    const created = await (await post('/sessions', { mode: 'plan' })).json();
+    const id = (created as { id: string }).id;
+    expect((await post(`/sessions/${id}/approve-plan`, {})).status).toBe(404);
+    expect((await post(`/sessions/${id}/discard-plan`, {})).status).toBe(404);
+  });
+
+  it('returns 404 when deciding a mode switch with no open gate', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider(),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+    });
+    const created = await (await post('/sessions', { mode: 'ask' })).json();
+    const id = (created as { id: string }).id;
+    expect((await post(`/sessions/${id}/mode-switch`, { approve: true })).status).toBe(404);
+  });
+
+  it('validates a mode-switch body before looking up the gate', async () => {
+    expect((await post('/sessions/s1/mode-switch', { approve: 'yes' })).status).toBe(400);
+  });
 
   it('validates an approval decision before refusing', async () => {
     expect((await post('/sessions/s1/tool-approvals/a1', { decision: 'maybe' })).status).toBe(400);

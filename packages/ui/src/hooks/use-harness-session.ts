@@ -380,6 +380,18 @@ function applyEvent(event: StreamEvent, sinks: EventSinks): void {
       return;
     }
 
+    case 'plan_approval_required': {
+      const { event: _event, sessionId: _sessionId, ...plan } = event;
+      sinks.setPending((current) => ({ ...(current ?? EMPTY_GATES), plan }));
+      return;
+    }
+
+    case 'mode_switch_required': {
+      const { event: _event, sessionId: _sessionId, ...modeSwitch } = event;
+      sinks.setPending((current) => ({ ...(current ?? EMPTY_GATES), modeSwitch }));
+      return;
+    }
+
     case 'usage':
       sinks.setSession((current) =>
         current === null

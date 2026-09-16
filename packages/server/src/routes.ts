@@ -9,11 +9,12 @@ import {
   encodeSseEvent,
   HarnessSettingsUpdateSchema,
   ModelListRequestSchema,
+  ModeSwitchDecisionRequestSchema,
   PromptPreviewRequestSchema,
   SetModeRequestSchema,
   ToolApprovalDecisionRequestSchema,
 } from '@evu/harness-protocol';
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
 import {
   type AuthHooks,
   CAPABILITIES,
@@ -28,10 +29,6 @@ export interface HarnessRouterOptions {
   /** Reported on `/health`. Defaults to the protocol version. */
   version?: string;
 }
-
-/** Thrown for a request the runtime cannot serve yet. */
-const NOT_IMPLEMENTED_MESSAGE =
-  'The turn loop is not implemented yet. See SPEC.md for the specified behavior.';
 
 /**
  * Build the route surface.
@@ -289,9 +286,79 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
     }
   });
 
-  app.post('/sessions/:id/approve-plan', async (c) => notImplemented(c, CAPABILITIES.decide));
-  app.post('/sessions/:id/discard-plan', async (c) => notImplemented(c, CAPABILITIES.decide));
-  app.post('/sessions/:id/mode-switch', async (c) => notImplemented(c, CAPABILITIES.decide));
+  app.post('/sessions/:id/approve-plan', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.decide);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const id = c.req.param('id');
+    const session = await harness.getSession(id);
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    try {
+      await harness.approvePlan(id);
+      return c.body(null, 204);
+    } catch (error) {
+      if (error instanceof GateNotFoundError) {
+        return c.json({ error: 'not_found', detail: error.message }, 404);
+      }
+      return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
+    }
+  });
+
+  app.post('/sessions/:id/discard-plan', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.decide);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const id = c.req.param('id');
+    const session = await harness.getSession(id);
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    try {
+      await harness.discardPlan(id);
+      return c.body(null, 204);
+    } catch (error) {
+      if (error instanceof GateNotFoundError) {
+        return c.json({ error: 'not_found', detail: error.message }, 404);
+      }
+      return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
+    }
+  });
+
+  app.post('/sessions/:id/mode-switch', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.decide);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = ModeSwitchDecisionRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    const id = c.req.param('id');
+    const session = await harness.getSession(id);
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    try {
+      await harness.decideModeSwitch(id, parsed.data.approve);
+      return c.body(null, 204);
+    } catch (error) {
+      if (error instanceof GateNotFoundError) {
+        return c.json({ error: 'not_found', detail: error.message }, 404);
+      }
+      return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
+    }
+  });
 
   app.post('/sessions/:id/ask-user/:askId', async (c) => {
     const rejection = await guard(c.req.raw, CAPABILITIES.decide);
@@ -483,14 +550,6 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
   });
 
   return app;
-
-  async function notImplemented(c: Context, capability: Capability) {
-    const rejection = await guard(c.req.raw, capability);
-    if (rejection !== null) {
-      return c.json(rejection.body, rejection.status);
-    }
-    return c.json({ error: 'not_implemented', detail: NOT_IMPLEMENTED_MESSAGE }, 501);
-  }
 }
 
 function messageOf(error: unknown): string {
