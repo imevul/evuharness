@@ -30,6 +30,10 @@ export {
 } from './components/MarkdownView.js';
 export { type PromptPreviewProps, PromptPreviewView } from './components/PromptPreview.js';
 export {
+  PromptSettings,
+  type PromptSettingsProps,
+} from './components/PromptSettings.js';
+export {
   ProviderSettings,
   type ProviderSettingsProps,
 } from './components/ProviderSettings.js';

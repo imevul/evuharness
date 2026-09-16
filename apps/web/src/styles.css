@@ -407,7 +407,8 @@ pre {
   overflow: auto;
 }
 
-[data-harness="provider-settings"] {
+[data-harness="provider-settings"],
+[data-harness="prompt-settings"] {
   padding: 16px;
   display: grid;
   gap: 16px;
@@ -500,7 +501,8 @@ pre {
 }
 
 [data-harness="provider-test"][data-ok="false"],
-[data-harness="provider-error"] {
+[data-harness="provider-error"],
+[data-harness="prompt-error"] {
   color: var(--danger);
 }
 
@@ -612,4 +614,94 @@ pre {
 
 [data-harness="tool-approval-select"]:disabled {
   opacity: 0.55;
+}
+
+[data-harness="prompt-settings-header"],
+[data-harness="prompt-preview-header"] {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-harness="prompt-settings"] h2,
+[data-harness="prompt-preview-header"] h3 {
+  margin: 0;
+}
+
+[data-harness="prompt-form"] {
+  display: grid;
+  gap: 10px;
+}
+
+[data-harness="prompt-form"] label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+}
+
+[data-harness="prompt-form"] textarea,
+[data-harness="prompt-form"] select {
+  background: var(--panel);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+[data-harness="prompt-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-harness="prompt-preview-panel"] {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+[data-harness="prompt-preview-hint"],
+[data-harness="prompt-preview-busy"],
+[data-harness="prompt-preview-empty"] {
+  color: var(--muted);
+  margin: 0;
+  font-size: 0.9em;
+}
+
+[data-harness="prompt-sections"] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+[data-harness="prompt-section"] {
+  display: grid;
+  gap: 4px;
+}
+
+[data-harness="prompt-section-label"] {
+  font-weight: 600;
+}
+
+[data-harness="prompt-section-dynamic"] {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+[data-harness="prompt-section"] pre,
+[data-harness="prompt-assembled"] pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.9em;
 }

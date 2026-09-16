@@ -206,7 +206,8 @@ export function createHarness(config: HarnessConfig = {}): Harness {
    * Load settings, seeding only when the store has never been written.
    *
    * Env and `config.providers` are a first-boot convenience. After a UI writes
-   * once, they must not come back on the next process start.
+   * once, they must not come back on the next process start. Pristine is the
+   * empty default shape — not "no providers" — so prompt-only edits stick.
    */
   async function loadStored() {
     const current = await settingsStore.get();
@@ -227,7 +228,11 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       askUserEnabled: config.policies?.askUser ?? true,
       maxToolRounds: config.policies?.maxToolRounds ?? 12,
     };
-    if (seeded.providers.length > 0 || seeded.prompts.global !== '') {
+    if (
+      seeded.providers.length > 0 ||
+      seeded.prompts.global !== '' ||
+      Object.keys(seeded.prompts.perMode).length > 0
+    ) {
       await settingsStore.put(seeded);
     }
     return seeded;

@@ -10,6 +10,7 @@ import {
   Composer,
   GateStack,
   HarnessClient,
+  PromptSettings,
   ProviderSettings,
   SessionSidebar,
   StatusBar,
@@ -239,6 +240,11 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
     });
   }, [catalogMode, refreshCatalog]);
 
+  const loadPromptPreview = useCallback(
+    (mode: ChatModeId) => client.previewPrompt({ mode }),
+    [client],
+  );
+
   if (error !== null) {
     return (
       <main className="settings">
@@ -276,6 +282,13 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
           }}
           onTest={async (providerId) => client.testConnection({ providerId })}
           onListModels={async (providerId) => (await client.listModels({ providerId })).models}
+        />
+        <PromptSettings
+          settings={settings}
+          onChange={async (update) => {
+            setSettings(await client.updateSettings(update));
+          }}
+          loadPreview={loadPromptPreview}
         />
         <section data-harness="tool-catalog-settings">
           <header data-harness="tool-catalog-settings-header">
