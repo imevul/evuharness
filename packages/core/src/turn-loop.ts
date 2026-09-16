@@ -1811,8 +1811,7 @@ async function finishCancelled(
 
   const reason = handle.reason ?? 'operator';
   // Reasoning alone is still worth showing; only a truly empty cancel is quiet.
-  const quiet =
-    input.content === '' && input.tools.length === 0 && input.reasoning === '';
+  const quiet = input.content === '' && input.tools.length === 0 && input.reasoning === '';
   return {
     event: 'cancelled',
     sessionId,
