@@ -39,6 +39,8 @@ export function PromptSettings(props: PromptSettingsProps) {
   const [preview, setPreview] = useState<PromptPreviewData | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Bumped after a successful save so in-flight loads cancel and preview reloads. */
+  const [previewEpoch, setPreviewEpoch] = useState(0);
 
   useEffect(() => {
     setGlobalDraft(settings.prompts.global);
@@ -58,6 +60,8 @@ export function PromptSettings(props: PromptSettingsProps) {
     let cancelled = false;
     setBusy('preview');
     setError(null);
+    // previewEpoch is an intentional reload signal after save.
+    void previewEpoch;
     void loadPreview(mode)
       .then((next) => {
         if (!cancelled) {
@@ -77,7 +81,7 @@ export function PromptSettings(props: PromptSettingsProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode, loadPreview, settings.prompts]);
+  }, [mode, loadPreview, previewEpoch]);
 
   const save = async () => {
     setBusy('save');
@@ -89,6 +93,8 @@ export function PromptSettings(props: PromptSettingsProps) {
           perMode: { [mode]: perModeDraft },
         },
       });
+      // Reload through the same compose path a turn uses (cancels any in-flight load).
+      setPreviewEpoch((epoch) => epoch + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

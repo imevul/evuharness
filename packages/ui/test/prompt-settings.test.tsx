@@ -108,7 +108,11 @@ describe('PromptSettings', () => {
     const loadPreview = vi.fn(async (mode: string) => previewFor(mode, `mode=${mode}`));
 
     render(
-      <PromptSettings settings={settings} onChange={async () => undefined} loadPreview={loadPreview} />,
+      <PromptSettings
+        settings={settings}
+        onChange={async () => undefined}
+        loadPreview={loadPreview}
+      />,
     );
 
     await waitFor(() => expect(loadPreview).toHaveBeenCalledWith('ask'));
