@@ -1,7 +1,7 @@
 import type { SessionDetail } from '@evu/harness-protocol';
 import { type HarnessClient, splitLiveSession, useHarnessSession } from '@evu/harness-ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 const baseSession: SessionDetail = {
   id: 's1',
@@ -49,35 +49,36 @@ describe('splitLiveSession', () => {
 
 describe('useHarnessSession reconnect', () => {
   it('recovers a live turn from session detail after the stream fails', async () => {
-    vi.useFakeTimers();
-    let live = true;
-    const details: SessionDetail[] = [];
+    let phase: 'idle' | 'recovering' | 'done' = 'idle';
 
     const client = {
       getSession: async () => {
-        const detail: SessionDetail = live
-          ? {
-              ...baseSession,
-              turnInProgress: true,
-              transcript: [
-                { kind: 'user', text: 'hi' },
-                { kind: 'assistant', text: 'partial from server', partial: true },
-              ],
-            }
-          : {
-              ...baseSession,
-              turnInProgress: false,
-              transcript: [
-                { kind: 'user', text: 'hi' },
-                { kind: 'assistant', text: 'finished after reconnect' },
-              ],
-            };
-        details.push(detail);
-        return detail;
+        if (phase === 'recovering') {
+          return {
+            ...baseSession,
+            turnInProgress: true,
+            transcript: [
+              { kind: 'user', text: 'hi' },
+              { kind: 'assistant', text: 'partial from server', partial: true },
+            ],
+          } satisfies SessionDetail;
+        }
+        if (phase === 'done') {
+          return {
+            ...baseSession,
+            turnInProgress: false,
+            transcript: [
+              { kind: 'user', text: 'hi' },
+              { kind: 'assistant', text: 'finished after reconnect' },
+            ],
+          } satisfies SessionDetail;
+        }
+        return baseSession;
       },
       cancel: async () => undefined,
       async *chat() {
         yield { event: 'delta', text: 'live' };
+        phase = 'recovering';
         throw new Error('network_drop');
       },
     } as unknown as HarnessClient;
@@ -86,8 +87,14 @@ describe('useHarnessSession reconnect', () => {
       useHarnessSession({ client, sessionId: 's1', initialMode: 'ask' }),
     );
 
-    await act(async () => {
-      await result.current.send({ text: 'hi' });
+    await waitFor(() => {
+      expect(result.current.session?.id).toBe('s1');
+    });
+
+    // Do not await send: recovery polls until the turn clears, which is the
+    // behavior under test. Awaiting would deadlock before we can flip `phase`.
+    act(() => {
+      void result.current.send({ text: 'hi' });
     });
 
     await waitFor(() => {
@@ -95,20 +102,17 @@ describe('useHarnessSession reconnect', () => {
       expect(result.current.error).toBeNull();
     });
 
-    live = false;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_100);
-    });
+    phase = 'done';
 
-    await waitFor(() => {
-      expect(result.current.turn).toBeNull();
-      expect(result.current.transcript.at(-1)).toEqual({
-        kind: 'assistant',
-        text: 'finished after reconnect',
-      });
-    });
-
-    expect(details.some((entry) => entry.turnInProgress)).toBe(true);
-    vi.useRealTimers();
+    await waitFor(
+      () => {
+        expect(result.current.turn).toBeNull();
+        expect(result.current.transcript.at(-1)).toEqual({
+          kind: 'assistant',
+          text: 'finished after reconnect',
+        });
+      },
+      { timeout: 3_000 },
+    );
   });
 });
