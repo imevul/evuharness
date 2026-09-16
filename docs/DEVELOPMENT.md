@@ -116,7 +116,9 @@ make dev-native-stop  # stop them
 ```
 
 Open the web app at `http://localhost:4300`; it proxies `/api` to the API on
-`4301`. Logs and pids live under `.data/dev/` (gitignored). By default the API
+`4301`. Logs and pids live under `.data/dev/` (gitignored). The demo API imports
+the workspace packages by their built entry, so `dev-native` compiles them with
+`pnpm run build` on first run when `packages/*/dist` is missing. By default the API
 uses the configured OpenAI-compatible provider (set it in the web Settings panel
 or seed it with `EVUHARNESS_PROVIDER_BASE_URL` / `EVUHARNESS_PROVIDER_MODEL` /
 `EVUHARNESS_PROVIDER_API_KEY`). Export `EVUHARNESS_FAKE_PROVIDER=1` before

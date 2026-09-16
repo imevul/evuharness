@@ -63,6 +63,19 @@ start_server() {
   log "started $name (pgid $pid) -> $logfile"
 }
 
+# The demo API runs its own source with tsx but imports the sibling workspace
+# packages by their built entry (`dist/index.js`), so those must be compiled
+# before it can start. A fresh checkout has no `dist/`, so build once if missing.
+ensure_built() {
+  if [[ -f "$ROOT/packages/core/dist/index.js" ]]; then
+    return 0
+  fi
+  # `--force` so a stale *.tsbuildinfo left behind after a manual `rm -rf dist`
+  # cannot make tsc believe the (now missing) output is up to date.
+  log "workspace packages are not built; compiling (tsc -b --force)"
+  (cd "$ROOT" && pnpm exec tsc -b tsconfig.json --force)
+}
+
 wait_healthy() {
   local name="$1" url="$2" logfile="$3" tries="${4:-60}"
   for _ in $(seq 1 "$tries"); do
@@ -92,6 +105,7 @@ do_status() {
 
 do_start() {
   do_stop
+  ensure_built
   local fake_note=""
   [[ "${EVUHARNESS_FAKE_PROVIDER:-}" == "1" ]] && fake_note=" (fake echo provider)"
 
