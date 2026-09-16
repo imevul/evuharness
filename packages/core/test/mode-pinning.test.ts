@@ -191,7 +191,8 @@ describe('mode cycling during a live turn', () => {
 
   it('keeps a running turn on its pinned mode after the session default changes', async () => {
     const store = new InMemorySessionStore();
-    const harness = createHarness({ store, idFactory: () => 'session-1' });
+    // Durable-store race: poke the inner store directly, so disable the cache.
+    const harness = createHarness({ store, cache: false, idFactory: () => 'session-1' });
     const session = await harness.createSession({ mode: 'ask' });
 
     const pin = await harness.pinTurn({ sessionId: session.id, mode: 'ask' });
@@ -206,7 +207,7 @@ describe('mode cycling during a live turn', () => {
 
   it('survives a full cycle of modes while a turn is pinned', async () => {
     const store = new InMemorySessionStore();
-    const harness = createHarness({ store, idFactory: () => 'session-1' });
+    const harness = createHarness({ store, cache: false, idFactory: () => 'session-1' });
     const session = await harness.createSession({ mode: 'ask' });
 
     const pin = await harness.pinTurn({ sessionId: session.id, mode: 'ask' });

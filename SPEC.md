@@ -104,6 +104,13 @@ mermaid tool is not part of the harness: models already emit fences.
 Sessions also carry pending gate state, cumulative token counts, and an optional
 workspace scope.
 
+The harness keeps an in-process LRU session cache in front of the configured
+`SessionStore`, with a per-session mutex so concurrent read-modify-write paths on
+one session serialize. Hosts configure `maxEntries` / optional TTL, or pass
+`cache: false` to talk to the durable store directly. Cached records are cloned;
+turn persistence still writes only turn-owned fields via `TurnPatch`, so a
+mid-turn set-mode cannot be clobbered by a later save.
+
 A session status bar is always-visible chrome for the active provider, the
 active model, and context use. It is not a settings page. The context fill is
 `lastPromptTokens / maxContextTokens` for the active model. There is no donut

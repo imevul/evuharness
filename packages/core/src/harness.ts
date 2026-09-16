@@ -28,6 +28,7 @@ import { resolveContextWindow } from './model-catalog.js';
 import { type ModePolicy, ModeRegistry, STOCK_MODES } from './modes.js';
 import { OpenAICompatibleClient } from './openai-client.js';
 import { composePrompt, type PromptConfig } from './prompts.js';
+import { type SessionCacheOptions, withSessionLock, wrapSessionStore } from './session-cache.js';
 import {
   createSessionRecord,
   type SessionRecord,
@@ -78,6 +79,13 @@ export interface HarnessFeatures {
  */
 export interface HarnessConfig {
   store?: SessionStore;
+  /**
+   * In-process session cache in front of `store`.
+   *
+   * Defaults to an LRU of 128 entries with per-session locks. Pass `false` to
+   * talk to the durable store directly (tests that assert store call shapes).
+   */
+  cache?: SessionCacheOptions | false;
   grants?: GrantStore;
   settings?: SettingsStore;
   /**
@@ -182,7 +190,7 @@ function defaultIdFactory(): () => string {
 }
 
 export function createHarness(config: HarnessConfig = {}): Harness {
-  const store = config.store ?? new InMemorySessionStore();
+  const store = wrapSessionStore(config.store ?? new InMemorySessionStore(), config.cache);
   const grants = config.grants ?? new InMemoryGrantStore();
   const settingsStore = config.settings ?? new InMemorySettingsStore();
   const modes = new ModeRegistry(config.modes ?? STOCK_MODES);
@@ -317,6 +325,17 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     return record;
   }
 
+  async function writeSessionMode(
+    sessionId: string,
+    mode: ChatModeId,
+    writer: ModeWriter,
+  ): Promise<void> {
+    await withSessionLock(store, sessionId, async () => {
+      const record = await loadRecord(sessionId);
+      await store.upsert(setSessionMode(record, mode, writer, now()));
+    });
+  }
+
   async function getStoredProvider(id?: string): Promise<StoredProviderProfile | null> {
     const stored = await loadStored();
     const wanted = id ?? stored.activeProviderId;
@@ -387,10 +406,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     pinTurn,
     createSession,
     hasMode: (id) => modes.has(id),
-    writeSessionMode: async (sessionId, mode, writer: ModeWriter) => {
-      const record = await loadRecord(sessionId);
-      await store.upsert(setSessionMode(record, mode, writer, now()));
-    },
+    writeSessionMode,
     maxToolRounds: async () => (await loadStored()).policies.maxToolRounds,
     askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
     toolApprovalRule,

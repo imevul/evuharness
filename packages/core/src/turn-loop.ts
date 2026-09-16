@@ -30,6 +30,7 @@ import { applyTurnPatch, type ModeWriter, type TurnPin } from './mode-pinning.js
 import type { ProviderCompleteInput } from './openai-client.js';
 import { mergeIntoLeadingSystemMessage } from './prompts.js';
 import { resolveProviderSelection } from './provider-override.js';
+import { withSessionLock } from './session-cache.js';
 import {
   DEFAULT_SESSION_TITLE,
   emptyGates,
@@ -193,62 +194,66 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
   }
 
   async function decidePlan(sessionId: string, decision: PlanGateDecision): Promise<void> {
-    const record = await deps.store.get(sessionId);
-    if (record === null) {
-      throw new Error(`Unknown session: ${sessionId}`);
-    }
-    const pending = record.pending.plan;
-    if (pending === null || !pending.awaitingApproval) {
-      throw new GateNotFoundError('plan', pending?.planId ?? 'none');
-    }
+    await withSessionLock(deps.store, sessionId, async () => {
+      const record = await deps.store.get(sessionId);
+      if (record === null) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+      const pending = record.pending.plan;
+      if (pending === null || !pending.awaitingApproval) {
+        throw new GateNotFoundError('plan', pending?.planId ?? 'none');
+      }
 
-    if (decision === 'approve') {
-      await mintPlanReceipts(deps, sessionId, record.workspaceId, pending.steps);
-      await deps.writeSessionMode(sessionId, 'agent', 'plan-approval');
-    }
+      if (decision === 'approve') {
+        await mintPlanReceipts(deps, sessionId, record.workspaceId, pending.steps);
+        await deps.writeSessionMode(sessionId, 'agent', 'plan-approval');
+      }
 
-    const latest = await deps.store.get(sessionId);
-    if (latest === null) {
-      throw new Error(`Unknown session: ${sessionId}`);
-    }
-    await deps.store.upsert({
-      ...latest,
-      pending: { ...latest.pending, plan: null },
-      updatedAt: deps.now(),
+      const latest = await deps.store.get(sessionId);
+      if (latest === null) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+      await deps.store.upsert({
+        ...latest,
+        pending: { ...latest.pending, plan: null },
+        updatedAt: deps.now(),
+      });
+
+      if (!deps.gates.resolve('plan', pending.planId, decision)) {
+        throw new GateNotFoundError('plan', pending.planId);
+      }
     });
-
-    if (!deps.gates.resolve('plan', pending.planId, decision)) {
-      throw new GateNotFoundError('plan', pending.planId);
-    }
   }
 
   async function decideModeSwitch(sessionId: string, approve: boolean): Promise<void> {
-    const record = await deps.store.get(sessionId);
-    if (record === null) {
-      throw new Error(`Unknown session: ${sessionId}`);
-    }
-    const pending = record.pending.modeSwitch;
-    if (pending === null) {
-      throw new GateNotFoundError('mode_switch', 'none');
-    }
+    await withSessionLock(deps.store, sessionId, async () => {
+      const record = await deps.store.get(sessionId);
+      if (record === null) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+      const pending = record.pending.modeSwitch;
+      if (pending === null) {
+        throw new GateNotFoundError('mode_switch', 'none');
+      }
 
-    if (approve) {
-      await deps.writeSessionMode(sessionId, pending.to, 'explicit-set-mode');
-    }
+      if (approve) {
+        await deps.writeSessionMode(sessionId, pending.to, 'explicit-set-mode');
+      }
 
-    const latest = await deps.store.get(sessionId);
-    if (latest === null) {
-      throw new Error(`Unknown session: ${sessionId}`);
-    }
-    await deps.store.upsert({
-      ...latest,
-      pending: { ...latest.pending, modeSwitch: null },
-      updatedAt: deps.now(),
+      const latest = await deps.store.get(sessionId);
+      if (latest === null) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+      await deps.store.upsert({
+        ...latest,
+        pending: { ...latest.pending, modeSwitch: null },
+        updatedAt: deps.now(),
+      });
+
+      if (!deps.gates.resolve('mode_switch', pending.requestId, approve)) {
+        throw new GateNotFoundError('mode_switch', pending.requestId);
+      }
     });
-
-    if (!deps.gates.resolve('mode_switch', pending.requestId, approve)) {
-      throw new GateNotFoundError('mode_switch', pending.requestId);
-    }
   }
 
   async function* runTurn(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<StreamEvent> {
@@ -1705,13 +1710,15 @@ async function persist(
   sessionId: string,
   patch: Parameters<typeof applyTurnPatch>[1],
 ): Promise<SessionRecord> {
-  const latest = await deps.store.get(sessionId);
-  if (latest === null) {
-    throw new Error(`Unknown session: ${sessionId}`);
-  }
-  const next = applyTurnPatch(latest, patch, deps.now());
-  await deps.store.upsert(next);
-  return next;
+  return withSessionLock(deps.store, sessionId, async () => {
+    const latest = await deps.store.get(sessionId);
+    if (latest === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    const next = applyTurnPatch(latest, patch, deps.now());
+    await deps.store.upsert(next);
+    return next;
+  });
 }
 
 async function persistTerminalAssistant(
@@ -1725,20 +1732,22 @@ async function persistTerminalAssistant(
     usage: SessionRecord['usage'];
   },
 ): Promise<SessionRecord> {
-  const latest = await deps.store.get(sessionId);
-  if (latest === null) {
-    throw new Error(`Unknown session: ${sessionId}`);
-  }
-  return persist(deps, sessionId, {
-    messages: [...latest.messages, { ...input.message, content: input.content }],
-    transcript: upsertAssistantRow(latest.transcript, {
-      kind: 'assistant',
-      text: input.content,
-      ...(input.tools.length === 0 ? {} : { tools: input.tools }),
-      ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
-      createdAt: deps.now(),
-    }),
-    usage: input.usage,
+  return withSessionLock(deps.store, sessionId, async () => {
+    const latest = await deps.store.get(sessionId);
+    if (latest === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    return persist(deps, sessionId, {
+      messages: [...latest.messages, { ...input.message, content: input.content }],
+      transcript: upsertAssistantRow(latest.transcript, {
+        kind: 'assistant',
+        text: input.content,
+        ...(input.tools.length === 0 ? {} : { tools: input.tools }),
+        ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+        createdAt: deps.now(),
+      }),
+      usage: input.usage,
+    });
   });
 }
 
@@ -1752,25 +1761,27 @@ async function persistPartial(
     usage: SessionRecord['usage'];
   },
 ): Promise<SessionRecord> {
-  const latest = await deps.store.get(sessionId);
-  if (latest === null) {
-    throw new Error(`Unknown session: ${sessionId}`);
-  }
-  const messages =
-    input.content === ''
-      ? latest.messages
-      : [...latest.messages, { role: 'assistant' as const, content: input.content }];
-  return persist(deps, sessionId, {
-    messages,
-    transcript: upsertAssistantRow(latest.transcript, {
-      kind: 'assistant',
-      text: input.content,
-      ...(input.tools.length === 0 ? {} : { tools: input.tools }),
-      ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
-      partial: true,
-      createdAt: deps.now(),
-    }),
-    usage: input.usage,
+  return withSessionLock(deps.store, sessionId, async () => {
+    const latest = await deps.store.get(sessionId);
+    if (latest === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    const messages =
+      input.content === ''
+        ? latest.messages
+        : [...latest.messages, { role: 'assistant' as const, content: input.content }];
+    return persist(deps, sessionId, {
+      messages,
+      transcript: upsertAssistantRow(latest.transcript, {
+        kind: 'assistant',
+        text: input.content,
+        ...(input.tools.length === 0 ? {} : { tools: input.tools }),
+        ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+        partial: true,
+        createdAt: deps.now(),
+      }),
+      usage: input.usage,
+    });
   });
 }
 
