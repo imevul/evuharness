@@ -40,6 +40,8 @@ export interface ComposerProps {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
+  /** Forwarded to `useContextMenu`; tests may set `0` to skip the keystroke debounce. */
+  menuDebounceMs?: number;
 }
 
 const EMPTY: ComposerValue = { text: '', caret: 0, refs: [] };
@@ -73,6 +75,7 @@ export function Composer(props: ComposerProps) {
     disabled = false,
     placeholder = 'Send a message…',
     className,
+    menuDebounceMs,
   } = props;
 
   const [value, setValue] = useState<ComposerValue>(EMPTY);
@@ -91,6 +94,7 @@ export function Composer(props: ComposerProps) {
     fetchItems,
     value,
     onChange: (next) => applyValue(next, true),
+    ...(menuDebounceMs === undefined ? {} : { debounceMs: menuDebounceMs }),
   });
 
   useLayoutEffect(() => {

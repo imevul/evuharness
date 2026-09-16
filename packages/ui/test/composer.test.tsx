@@ -1,7 +1,11 @@
 import type { ContextMenuDescriptor, ContextMenuNode } from '@evu/harness-protocol';
 import { Composer } from '@evu/harness-ui';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(() => {
+  cleanup();
+});
 
 const menus: ContextMenuDescriptor[] = [
   {
@@ -25,6 +29,24 @@ const nodes: ContextMenuNode[] = [
     chip: { tone: 'accent' },
   },
 ];
+
+function typeTrigger(input: HTMLElement, text: string) {
+  input.focus();
+  input.textContent = text;
+  const selection = window.getSelection();
+  const range = document.createRange();
+  const textNode = input.firstChild;
+  if (textNode !== null && textNode.nodeType === Node.TEXT_NODE) {
+    range.setStart(textNode, text.length);
+    range.collapse(true);
+  } else {
+    range.selectNodeContents(input);
+    range.collapse(false);
+  }
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  fireEvent.input(input);
+}
 
 describe('Composer', () => {
   it('does not crash when the contenteditable is clicked', () => {
@@ -56,21 +78,14 @@ describe('Composer', () => {
         mode="ask"
         onModeChange={() => undefined}
         onSend={onSend}
+        menuDebounceMs={0}
       />,
     );
 
     const input = screen.getByRole('textbox');
-    input.focus();
 
     await act(async () => {
-      input.textContent = '@ap';
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(input);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      fireEvent.input(input);
+      typeTrigger(input, '@ap');
     });
 
     await waitFor(() => expect(fetchItems).toHaveBeenCalled());
@@ -116,20 +131,14 @@ describe('Composer', () => {
         mode="ask"
         onModeChange={() => undefined}
         onSend={onSend}
+        menuDebounceMs={0}
       />,
     );
 
     const input = screen.getByRole('textbox');
 
     await act(async () => {
-      input.textContent = '@a';
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(input);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      fireEvent.input(input);
+      typeTrigger(input, '@a');
     });
 
     await waitFor(() => expect(screen.getByRole('option')).toBeTruthy());
@@ -139,20 +148,26 @@ describe('Composer', () => {
     await waitFor(() => expect(input.querySelector('[data-harness="chip"]')).not.toBeNull());
 
     await act(async () => {
+      const chip = input.querySelector('[data-harness="chip"]');
+      expect(chip).not.toBeNull();
+      // Drop the trailing space paint left after the chip, then put the caret
+      // immediately after the chip so Backspace hits deleteChipBeforeCaret.
+      for (const child of Array.from(input.childNodes)) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          child.textContent = '';
+        }
+      }
       const selection = window.getSelection();
       const range = document.createRange();
-      range.selectNodeContents(input);
-      range.collapse(false);
+      range.setStartAfter(chip as Node);
+      range.collapse(true);
       selection?.removeAllRanges();
       selection?.addRange(range);
-      fireEvent.keyDown(input, { key: 'Backspace' });
       fireEvent.keyDown(input, { key: 'Backspace' });
     });
 
     await waitFor(() => expect(input.querySelector('[data-harness="chip"]')).toBeNull());
 
-    // Send button should be disabled when empty; if residual whitespace remains,
-    // refs must still be empty.
     const send = screen.getByRole('button', { name: 'Send' });
     if (!(send as HTMLButtonElement).disabled) {
       fireEvent.click(send);
