@@ -17,6 +17,8 @@ import {
   type ProviderEvent,
   resolveGrant,
   type SessionStore,
+  skillsMenu,
+  staticSkillCatalog,
 } from '@evu/harness-core';
 import { isTerminalEvent, type StreamEvent } from '@evu/harness-protocol';
 import { describe, expect, it } from 'vitest';
@@ -1594,9 +1596,101 @@ describe('turn loop: mode switch gate', () => {
 describe('turn loop: prompt and skills', () => {
   it.skip('builds the system prompt once per turn from the pin', () => {});
 
-  it.skip('merges a loaded skill into the leading system message', () => {});
+  it('merges a loaded skill into the leading system message', async () => {
+    const catalog = staticSkillCatalog([
+      {
+        id: 'review',
+        name: 'review',
+        description: 'Review carefully',
+        body: 'Always read the diff first.',
+      },
+    ]);
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'load_skill', { name: 'review' }) },
+      { events: textEvents('done reviewing') },
+    ]);
+    const harness = runtime(provider, { skills: catalog });
+    const session = await harness.createSession({ mode: 'ask' });
+    const events = await collect(harness, session.id, 'please review');
 
-  it.skip('never inserts a second system message mid-thread', () => {});
+    expect(events.some((event) => event.event === 'tool' && event.name === 'load_skill')).toBe(
+      true,
+    );
+    expect(provider.calls).toHaveLength(2);
+    const systemMessages = provider.calls[1]?.messages.filter(
+      (message) => message.role === 'system',
+    );
+    expect(systemMessages).toHaveLength(1);
+    expect(systemMessages?.[0]?.content).toContain('Always read the diff first.');
+    expect(systemMessages?.[0]?.content).toContain('Loaded skill: review');
+  });
+
+  it('never inserts a second system message mid-thread', async () => {
+    const catalog = staticSkillCatalog([
+      {
+        id: 'review',
+        name: 'review',
+        description: 'Review carefully',
+        body: 'Skill body for merge.',
+      },
+    ]);
+    const provider = new FakeProvider([
+      { events: textEvents('first answer') },
+      { events: toolEvents('c1', 'load_skill', { name: 'review' }) },
+      { events: textEvents('after skill') },
+    ]);
+    const harness = runtime(provider, {
+      skills: catalog,
+      contextMenus: [skillsMenu({ catalog })],
+    });
+    const session = await harness.createSession({ mode: 'ask' });
+    await collect(harness, session.id, 'hello');
+    await collect(harness, session.id, 'load it');
+
+    const secondTurn = provider.calls.slice(1);
+    expect(secondTurn.length).toBeGreaterThanOrEqual(2);
+    for (const call of secondTurn) {
+      const systems = call.messages.filter((message) => message.role === 'system');
+      expect(systems).toHaveLength(1);
+    }
+    const afterLoad = secondTurn.at(-1)?.messages.find((message) => message.role === 'system');
+    expect(afterLoad?.content).toContain('Skill body for merge.');
+  });
+
+  it('merges a slash-picked skill into the leading system message', async () => {
+    const catalog = staticSkillCatalog([
+      {
+        id: 'review',
+        name: 'review',
+        description: 'Review carefully',
+        body: 'Slash-injected skill body.',
+      },
+    ]);
+    const provider = new FakeProvider([{ events: textEvents('ok') }]);
+    const harness = runtime(provider, {
+      skills: catalog,
+      contextMenus: [skillsMenu({ catalog })],
+    });
+    const session = await harness.createSession({ mode: 'ask' });
+    for await (const _event of harness.runTurn({
+      sessionId: session.id,
+      mode: 'ask',
+      messages: [
+        {
+          text: '/review please',
+          refs: [{ menu: 'commands', path: [], id: 'review', token: '/review' }],
+        },
+      ],
+    })) {
+      // drain
+    }
+
+    const system = provider.calls[0]?.messages.find((message) => message.role === 'system');
+    expect(system?.content).toContain('Slash-injected skill body.');
+    expect(provider.calls[0]?.messages.filter((message) => message.role === 'system')).toHaveLength(
+      1,
+    );
+  });
 
   it.skip('applies a context resolver result as an appended context block', () => {});
 

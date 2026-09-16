@@ -1,5 +1,8 @@
 import type { ChatModeId, PromptPreview, PromptSection, Scope } from '@evu/harness-protocol';
 import type { ModeRegistry } from './modes.js';
+import type { SkillSummary } from './skills/types.js';
+
+export type { SkillSummary } from './skills/types.js';
 
 export interface PromptSlotContext {
   mode: ChatModeId;
@@ -24,12 +27,6 @@ export interface PromptConfig {
   global?: string;
   perMode?: Record<string, string>;
   dynamic?: PromptSlot[];
-}
-
-export interface SkillSummary {
-  id: string;
-  name: string;
-  description: string;
 }
 
 export interface ComposePromptInput {

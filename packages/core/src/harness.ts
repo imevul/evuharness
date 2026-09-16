@@ -46,6 +46,7 @@ import {
   storedFromInput,
   toPublicSettings,
 } from './settings-store.js';
+import { builtinLoadSkillTool, type SkillCatalog, type SkillSummary } from './skills/index.js';
 import type { ListSessionsOptions, SessionStore } from './stores.js';
 import { InMemoryGrantStore, InMemorySessionStore } from './stores.js';
 import { type ToolDefinition, ToolRegistry } from './tools.js';
@@ -91,6 +92,11 @@ export interface HarnessConfig {
   tools?: ToolDefinition[];
   contextMenus?: ContextMenuDefinition[];
   prompts?: PromptConfig;
+  /**
+   * Host skill store. When set, the skills catalog is composed into the system
+   * prompt and `load_skill` is registered for leading-system injection.
+   */
+  skills?: SkillCatalog;
   policies?: HarnessPolicies;
   features?: HarnessFeatures;
   idFactory?: () => string;
@@ -148,6 +154,9 @@ export interface Harness {
     sessionId?: string;
   }): Promise<PromptPreview>;
 
+  /** Summaries from the configured skill catalog, or an empty list. */
+  listSkills(): Promise<SkillSummary[]>;
+
   toolCatalog(mode: ChatModeId): Promise<ToolCatalogResponse>;
   menuCatalog(): ContextMenuDescriptor[];
   listMenuItems(
@@ -177,7 +186,12 @@ export function createHarness(config: HarnessConfig = {}): Harness {
   const grants = config.grants ?? new InMemoryGrantStore();
   const settingsStore = config.settings ?? new InMemorySettingsStore();
   const modes = new ModeRegistry(config.modes ?? STOCK_MODES);
-  const tools = new ToolRegistry([...(config.tools ?? []), ...builtinGateTools()]);
+  const skills = config.skills ?? null;
+  const tools = new ToolRegistry([
+    ...(config.tools ?? []),
+    ...builtinGateTools(),
+    ...(skills === null ? [] : [builtinLoadSkillTool()]),
+  ]);
   const contextMenus = new ContextMenuRegistry(config.contextMenus ?? []);
   const hostPrompts: PromptConfig = config.prompts ?? {};
   const newId = config.idFactory ?? defaultIdFactory();
@@ -186,6 +200,13 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     ...(config.fetch === undefined ? {} : { fetch: config.fetch }),
   });
   const provider: ProviderAdapter = config.provider ?? openai;
+
+  async function skillSummaries(): Promise<SkillSummary[]> {
+    if (skills === null) {
+      return [];
+    }
+    return [...(await skills.list())];
+  }
 
   const seedProviders = (config.providers ?? []).map(storedFromInput);
   const seedIds = new Set(seedProviders.map((provider) => provider.id));
@@ -342,6 +363,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       prompts: promptsFor(stored),
       scope,
       sessionId: record.id,
+      skills: await skillSummaries(),
     });
 
     return createTurnPin({
@@ -372,6 +394,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     maxToolRounds: async () => (await loadStored()).policies.maxToolRounds,
     askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
     toolApprovalRule,
+    ...(skills === null ? {} : { skills }),
     now,
   });
 
@@ -517,7 +540,12 @@ export function createHarness(config: HarnessConfig = {}): Harness {
         prompts: promptsFor(stored),
         scope: input.scope ?? {},
         ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+        skills: await skillSummaries(),
       });
+    },
+
+    async listSkills(): Promise<SkillSummary[]> {
+      return skillSummaries();
     },
 
     async toolCatalog(mode: ChatModeId): Promise<ToolCatalogResponse> {
