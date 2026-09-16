@@ -23,9 +23,7 @@ export interface CompactContextInput {
  * skill / prompt-extra merges stay intact. Returning a thread that drops the
  * leading system message is allowed but almost always wrong.
  */
-export type CompactContext = (
-  input: CompactContextInput,
-) => ChatMessage[] | Promise<ChatMessage[]>;
+export type CompactContext = (input: CompactContextInput) => ChatMessage[] | Promise<ChatMessage[]>;
 
 /** Default non-system message cap for the naive truncating compactor. */
 export const DEFAULT_COMPACTION_MAX_MESSAGES = 48;

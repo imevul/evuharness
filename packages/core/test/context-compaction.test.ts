@@ -1,12 +1,12 @@
 import {
+  type CompactContext,
+  type CompactContextInput,
   createHarness,
   createTruncatingCompactor,
   DEFAULT_COMPACTION_MAX_MESSAGES,
   estimateMessageTokens,
   FakeProvider,
   truncateContext,
-  type CompactContext,
-  type CompactContextInput,
 } from '@evu/harness-core';
 import type { ChatMessage } from '@evu/harness-protocol';
 import { describe, expect, it, vi } from 'vitest';
@@ -145,8 +145,7 @@ describe('harness compactContext hook', () => {
       msg('user', 'compacted:hello-world'),
     ]);
 
-    const stored = await harness.getSession(session.id);
-    // Wire detail has no messages; check the store via a second turn hook input.
+    // Stored session keeps full history; confirm via a second turn's hook input.
     const provider2 = new FakeProvider([{ echo: true }]);
     let seenStoredTail = '';
     const harness2 = createHarness({
