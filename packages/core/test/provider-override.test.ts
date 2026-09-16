@@ -2,8 +2,8 @@ import {
   createSessionRecord,
   mergeProviderOverrides,
   resolveProviderSelection,
-  setSessionProvider,
   type StoredProviderProfile,
+  setSessionProvider,
 } from '@evu/harness-core';
 import { describe, expect, it } from 'vitest';
 

@@ -30,9 +30,7 @@ describe('StatusBar', () => {
   });
 
   it('surfaces an effective effort override', () => {
-    render(
-      <StatusBar provider={{ id: 'local', model: 'm', effort: 'high' }} usage={usage} />,
-    );
+    render(<StatusBar provider={{ id: 'local', model: 'm', effort: 'high' }} usage={usage} />);
     expect(screen.getByText('high')).toBeTruthy();
   });
 });

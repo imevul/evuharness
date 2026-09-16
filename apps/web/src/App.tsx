@@ -65,12 +65,7 @@ export function App() {
     // The catalog and the mode list come from the server rather than being hardcoded
     // here. That is the point of the descriptor: this app does not know which
     // triggers exist.
-    Promise.all([
-      client.status(),
-      client.getSettings(),
-      client.contextMenus(),
-      refreshSessions(),
-    ])
+    Promise.all([client.status(), client.getSettings(), client.contextMenus(), refreshSessions()])
       .then(([statusResponse, settingsResponse, catalog, list]) => {
         setStatus(statusResponse);
         setSettings(settingsResponse);
@@ -82,11 +77,6 @@ export function App() {
         setBootError(cause instanceof Error ? cause.message : 'Failed to reach the API');
       });
   }, [client, refreshSessions]);
-
-  // A session switch drops the per-send draft so it cannot leak across chats.
-  useEffect(() => {
-    setDraftProvider(null);
-  }, [activeId]);
 
   const modes = (status?.modes ?? ['agent']) as ChatModeId[];
   const initialMode = modes[0] ?? 'agent';
@@ -107,6 +97,7 @@ export function App() {
   const createSession = useCallback(async () => {
     const created = await client.createSession({ mode: session.draftMode });
     await refreshSessions();
+    setDraftProvider(null);
     setActiveId(created.id);
   }, [client, session.draftMode, refreshSessions]);
 
@@ -161,6 +152,7 @@ export function App() {
         sessions={sessions}
         activeId={activeId}
         onSelect={(id) => {
+          setDraftProvider(null);
           setActiveId(id);
           setScreen('chat');
         }}

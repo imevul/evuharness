@@ -138,9 +138,7 @@ export function ProviderOverrideControls(props: ProviderOverrideControlsProps) {
             onChange={(event) =>
               emit({
                 effort:
-                  event.target.value === ''
-                    ? undefined
-                    : (event.target.value as ReasoningEffort),
+                  event.target.value === '' ? undefined : (event.target.value as ReasoningEffort),
               })
             }
           >

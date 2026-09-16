@@ -27,9 +27,9 @@ import { abortError, isAbortError, type ProviderAdapter } from './fake-provider.
 import { GateCancelledError, GateNotFoundError, type GateWaiterRegistry } from './gate-waiters.js';
 import { digestToolCall, type GrantStore, grantForDecision, resolveGrant } from './grants.js';
 import { applyTurnPatch, type ModeWriter, type TurnPin } from './mode-pinning.js';
-import { resolveProviderSelection } from './provider-override.js';
 import type { ProviderCompleteInput } from './openai-client.js';
 import { mergeIntoLeadingSystemMessage } from './prompts.js';
+import { resolveProviderSelection } from './provider-override.js';
 import {
   DEFAULT_SESSION_TITLE,
   emptyGates,

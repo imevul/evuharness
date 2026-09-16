@@ -34,13 +34,13 @@ export {
   type PromptSettingsProps,
 } from './components/PromptSettings.js';
 export {
-  ProviderSettings,
-  type ProviderSettingsProps,
-} from './components/ProviderSettings.js';
-export {
   ProviderOverrideControls,
   type ProviderOverrideControlsProps,
 } from './components/ProviderOverrideControls.js';
+export {
+  ProviderSettings,
+  type ProviderSettingsProps,
+} from './components/ProviderSettings.js';
 export { SessionSidebar, type SessionSidebarProps } from './components/SessionSidebar.js';
 export { StatusBar, type StatusBarProps } from './components/StatusBar.js';
 export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCatalogView.js';
