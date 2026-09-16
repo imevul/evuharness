@@ -7,6 +7,7 @@
 
 export * from './context-menus/index.js';
 export * from './fake-provider.js';
+export * from './gate-waiters.js';
 export * from './grants.js';
 export * from './harness.js';
 export * from './mode-pinning.js';

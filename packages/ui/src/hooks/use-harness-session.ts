@@ -1,4 +1,5 @@
 import type {
+  ApprovalDecision,
   ChatModeId,
   ContextRef,
   PendingGates,
@@ -45,6 +46,13 @@ export interface HarnessSessionState {
     provider?: ProviderOverride;
   }) => Promise<void>;
   cancel: () => Promise<void>;
+  /**
+   * Resolve a tool-approval gate.
+   *
+   * Clears the pending row optimistically so the modal does not linger while the
+   * turn resumes and executes the tool.
+   */
+  decideToolApproval: (approvalId: string, decision: ApprovalDecision) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -179,6 +187,31 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     abort.current?.abort();
   }, [client, sessionId]);
 
+  const decideToolApproval = useCallback(
+    async (approvalId: string, decision: ApprovalDecision) => {
+      if (sessionId === null) {
+        return;
+      }
+      setPending((current) =>
+        current === null
+          ? null
+          : {
+              ...current,
+              toolApprovals: current.toolApprovals.filter(
+                (entry) => entry.approvalId !== approvalId,
+              ),
+            },
+      );
+      try {
+        await client.decideToolApproval(sessionId, approvalId, { decision });
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'approval_failed');
+        await reload();
+      }
+    },
+    [client, sessionId, reload],
+  );
+
   return {
     session,
     transcript,
@@ -189,6 +222,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     setDraftMode,
     send,
     cancel,
+    decideToolApproval,
     reload,
   };
 }

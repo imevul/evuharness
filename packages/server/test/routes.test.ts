@@ -236,7 +236,9 @@ describe('gates', () => {
     expect((await post('/sessions/s1/tool-approvals/a1', { decision: 'maybe' })).status).toBe(400);
   });
 
-  it('accepts every rung of the approval ladder', async () => {
+  it('returns 404 when no approval is pending', async () => {
+    const created = await (await post('/sessions', { mode: 'agent' })).json();
+
     for (const decision of [
       'allow_once',
       'allow_session',
@@ -244,8 +246,72 @@ describe('gates', () => {
       'allow_always',
       'deny',
     ]) {
-      const response = await post('/sessions/s1/tool-approvals/a1', { decision });
-      expect(response.status).toBe(501);
+      const response = await post(`/sessions/${created.id}/tool-approvals/missing`, { decision });
+      expect(response.status).toBe(404);
+    }
+  });
+
+  it('accepts a decision for a live tool-approval gate', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider([
+          {
+            events: [
+              {
+                kind: 'message',
+                message: {
+                  role: 'assistant',
+                  content: '',
+                  toolCalls: [{ id: 'c1', name: 'restart_service', arguments: { id: 'api' } }],
+                },
+              },
+            ],
+          },
+          {
+            events: [
+              { kind: 'delta', text: 'ok' },
+              { kind: 'message', message: { role: 'assistant', content: 'ok' } },
+            ],
+          },
+        ]),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+    });
+
+    const created = (await (await post('/sessions', { mode: 'agent' })).json()) as { id: string };
+    const chat = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: created.id,
+        mode: 'agent',
+        messages: [{ text: 'restart' }],
+      }),
+    });
+    expect(chat.status).toBe(200);
+    const reader = chat.body!.getReader();
+    const decoder = new TextDecoder();
+    let approvalId: string | null = null;
+    let buffer = '';
+    while (approvalId === null) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const match = buffer.match(/"approvalId":"([^"]+)"/);
+      if (match) {
+        approvalId = match[1] ?? null;
+      }
+    }
+    expect(approvalId).not.toBeNull();
+
+    const response = await post(`/sessions/${created.id}/tool-approvals/${approvalId}`, {
+      decision: 'allow_once',
+    });
+    expect(response.status).toBe(204);
+
+    while (true) {
+      const { done } = await reader.read();
+      if (done) break;
     }
   });
 });

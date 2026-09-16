@@ -1,7 +1,9 @@
 import type {
+  ApprovalDecision,
   ChatMessage,
   ChatModeId,
   ChatRequest,
+  PendingToolApproval,
   Scope,
   StreamEvent,
   ToolEvent,
@@ -10,11 +12,17 @@ import type {
 } from '@evu/harness-protocol';
 import type { ContextMenuRegistry } from './context-menus/index.js';
 import { abortError, isAbortError, type ProviderAdapter } from './fake-provider.js';
-import { digestToolCall, type GrantStore, resolveGrant } from './grants.js';
+import { GateCancelledError, GateNotFoundError, type GateWaiterRegistry } from './gate-waiters.js';
+import { digestToolCall, type GrantStore, grantForDecision, resolveGrant } from './grants.js';
 import { applyTurnPatch, type TurnPin } from './mode-pinning.js';
 import type { ProviderCompleteInput } from './openai-client.js';
 import { mergeIntoLeadingSystemMessage } from './prompts.js';
-import { DEFAULT_SESSION_TITLE, type SessionRecord, titleFromMessage } from './session-record.js';
+import {
+  DEFAULT_SESSION_TITLE,
+  emptyGates,
+  type SessionRecord,
+  titleFromMessage,
+} from './session-record.js';
 import type { StoredProviderProfile } from './settings-store.js';
 import type { SessionStore } from './stores.js';
 import type { ToolHandler, ToolRegistry } from './tools.js';
@@ -29,6 +37,17 @@ export interface TurnController {
   runTurn(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<StreamEvent>;
   cancel(sessionId: string, reason?: CancelReason): Promise<void>;
   isLive(sessionId: string): boolean;
+  /**
+   * Deliver a tool-approval decision to a suspended turn.
+   *
+   * The turn loop records grants and executes (or refuses) after this resolves.
+   * Returns once the waiter has accepted the decision — not after the tool runs.
+   */
+  decideToolApproval(
+    sessionId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void>;
 }
 
 export interface TurnControllerDeps {
@@ -37,6 +56,8 @@ export interface TurnControllerDeps {
   tools: ToolRegistry;
   contextMenus: ContextMenuRegistry;
   provider: ProviderAdapter;
+  gates: GateWaiterRegistry;
+  newId: () => string;
   getStoredProvider(id?: string): Promise<StoredProviderProfile | null>;
   pinTurn(input: { sessionId: string; mode: ChatModeId; scope?: Scope }): Promise<TurnPin>;
   createSession(options?: {
@@ -69,11 +90,34 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
   async function cancel(sessionId: string, reason: CancelReason = 'operator'): Promise<void> {
     const handle = live.get(sessionId);
     if (handle === undefined) {
+      // Still drop any orphaned waiters tied to this session id.
+      deps.gates.cancelSession(sessionId);
       return;
     }
     handle.reason = reason;
+    // Reject open gate waiters before aborting so a late decideToolApproval cannot
+    // resume execution after cancel has been requested.
+    deps.gates.cancelSession(sessionId);
     handle.controller.abort();
     await handle.finished;
+  }
+
+  async function decideToolApproval(
+    sessionId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    const record = await deps.store.get(sessionId);
+    if (record === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    const pending = record.pending.toolApprovals.find((entry) => entry.approvalId === approvalId);
+    if (pending === undefined) {
+      throw new GateNotFoundError('tool_approval', approvalId);
+    }
+    if (!deps.gates.resolve('tool_approval', approvalId, decision)) {
+      throw new GateNotFoundError('tool_approval', approvalId);
+    }
   }
 
   async function* runTurn(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<StreamEvent> {
@@ -98,13 +142,17 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
     const handle: LiveTurn = { controller, reason: null, finished, resolveFinished };
     live.set(sessionId, handle);
 
-    const onExternalAbort = () => controller.abort();
+    const onExternalAbort = () => {
+      deps.gates.cancelSession(sessionId);
+      controller.abort();
+    };
     signal?.addEventListener('abort', onExternalAbort, { once: true });
 
     try {
       yield* executeTurn(deps, request, sessionId, handle);
     } finally {
       signal?.removeEventListener('abort', onExternalAbort);
+      deps.gates.cancelSession(sessionId);
       live.delete(sessionId);
       handle.resolveFinished();
     }
@@ -113,6 +161,7 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
   return {
     runTurn,
     cancel,
+    decideToolApproval,
     isLive: (sessionId) => live.has(sessionId),
   };
 }
@@ -263,7 +312,32 @@ async function* executeTurn(
           break;
         }
 
-        const executed = await executeTool(deps, pin, scope, call, handle.controller.signal);
+        let executed: { event: ToolEvent; message: ChatMessage };
+        try {
+          const toolRun = executeTool(deps, pin, scope, call, handle.controller.signal);
+          let next = await toolRun.next();
+          while (!next.done) {
+            yield next.value;
+            next = await toolRun.next();
+          }
+          executed = next.value;
+        } catch (error) {
+          if (
+            isAbortError(error) ||
+            error instanceof GateCancelledError ||
+            handle.controller.signal.aborted
+          ) {
+            terminal = await finishCancelled(deps, sessionId, handle, {
+              content,
+              reasoning,
+              tools: turnTools,
+              usage,
+            });
+            break;
+          }
+          throw error;
+        }
+
         turnTools.push(executed.event);
         yield {
           event: 'tool',
@@ -400,13 +474,13 @@ type StreamOutcome =
       message: string;
     };
 
-async function executeTool(
+async function* executeTool(
   deps: TurnControllerDeps,
   pin: TurnPin,
   scope: Scope,
   call: { id: string; name: string; arguments: Record<string, unknown> },
   signal: AbortSignal,
-): Promise<{ event: ToolEvent; message: ChatMessage }> {
+): AsyncGenerator<StreamEvent, { event: ToolEvent; message: ChatMessage }> {
   const args =
     call.arguments !== null && typeof call.arguments === 'object' && !Array.isArray(call.arguments)
       ? call.arguments
@@ -424,17 +498,23 @@ async function executeTool(
   } else {
     const registration = deps.tools.get(call.name);
     if (registration.spec.approval === 'requires_approval') {
+      const digest = digestToolCall(call.name, args);
       const granted = await resolveGrant(deps.grants, {
         sessionId: pin.sessionId,
         workspaceId: scope.workspaceId,
         tool: call.name,
-        digest: digestToolCall(call.name, args),
+        digest,
       });
-      if (!granted.allowed) {
-        result = `Tool '${call.name}' was denied: approval is required.`;
-        denied = true;
-      } else {
+      if (granted.allowed) {
         result = await invokeTool(registration.handler, args, pin, scope, signal);
+      } else {
+        const outcome = yield* awaitApproval(deps, pin, scope, call.name, args, digest, signal);
+        if (outcome.decision === 'deny') {
+          result = `Tool '${call.name}' was denied by the user.`;
+          denied = true;
+        } else {
+          result = await invokeTool(registration.handler, args, pin, scope, signal);
+        }
       }
     } else {
       result = await invokeTool(registration.handler, args, pin, scope, signal);
@@ -457,6 +537,121 @@ async function executeTool(
       toolCallId: call.id,
     },
   };
+}
+
+/**
+ * Suspend the turn for a tool-approval decision.
+ *
+ * Yields `tool_approval_required`, waits on the shared gate registry, records any
+ * grant the decision implies, and returns. The caller still holds the original
+ * turn pin — resume never re-reads the session mode.
+ */
+async function* awaitApproval(
+  deps: TurnControllerDeps,
+  pin: TurnPin,
+  scope: Scope,
+  tool: string,
+  args: Record<string, unknown>,
+  digest: string,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent, { decision: ApprovalDecision }> {
+  const approval: PendingToolApproval = {
+    approvalId: deps.newId(),
+    tool,
+    arguments: args,
+    digest,
+    requestedAt: deps.now(),
+  };
+
+  const latest = await deps.store.get(pin.sessionId);
+  if (latest === null) {
+    throw new Error(`Unknown session: ${pin.sessionId}`);
+  }
+  await persist(deps, pin.sessionId, {
+    pending: {
+      ...latest.pending,
+      toolApprovals: [...latest.pending.toolApprovals, approval],
+    },
+  });
+
+  const waiter = deps.gates.open<ApprovalDecision>({
+    sessionId: pin.sessionId,
+    kind: 'tool_approval',
+    id: approval.approvalId,
+  });
+
+  // Start waiting before yielding so a cancel that arrives while the consumer
+  // handles the event rejects a promise that already has a listener.
+  const waiting = waiter.wait(signal);
+
+  yield {
+    event: 'tool_approval_required',
+    sessionId: pin.sessionId,
+    ...approval,
+  };
+
+  let decision: ApprovalDecision;
+  try {
+    decision = await waiting;
+  } catch (error) {
+    await removePendingToolApproval(deps, pin.sessionId, approval.approvalId);
+    if (error instanceof GateCancelledError || isAbortError(error) || signal.aborted) {
+      throw error instanceof GateCancelledError ? error : abortError();
+    }
+    throw error;
+  }
+
+  await removePendingToolApproval(deps, pin.sessionId, approval.approvalId);
+
+  if (decision !== 'deny') {
+    const grant = grantForDecision(
+      decision,
+      {
+        sessionId: pin.sessionId,
+        workspaceId: scope.workspaceId,
+        tool,
+        digest,
+      },
+      deps.now(),
+    );
+    if (grant !== null) {
+      await deps.grants.add(grant);
+      // allow_once: consume the receipt we just wrote so it cannot authorize a
+      // later identical call. Wider scopes stay as standing grants.
+      if (decision === 'allow_once') {
+        await deps.grants.consumeOnce({
+          sessionId: pin.sessionId,
+          workspaceId: scope.workspaceId,
+          tool,
+          digest,
+        });
+      }
+    }
+  }
+
+  return { decision };
+}
+
+async function removePendingToolApproval(
+  deps: TurnControllerDeps,
+  sessionId: string,
+  approvalId: string,
+): Promise<void> {
+  const latest = await deps.store.get(sessionId);
+  if (latest === null) {
+    return;
+  }
+  if (!latest.pending.toolApprovals.some((entry) => entry.approvalId === approvalId)) {
+    return;
+  }
+  await persist(deps, sessionId, {
+    pending: {
+      ...latest.pending,
+      toolApprovals: latest.pending.toolApprovals.filter(
+        (entry) => entry.approvalId !== approvalId,
+      ),
+    },
+  });
 }
 
 async function invokeTool(
@@ -657,6 +852,9 @@ async function finishCancelled(
       createdAt: deps.now(),
     }),
     usage: input.usage,
+    // A cancel while a gate is open must not leave pending rows that a later
+    // decision could match after the turn has ended.
+    pending: emptyGates(),
   });
 
   const reason = handle.reason ?? 'operator';

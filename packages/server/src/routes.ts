@@ -1,4 +1,4 @@
-import { type Harness, setSessionMode } from '@evu/harness-core';
+import { GateNotFoundError, type Harness, setSessionMode } from '@evu/harness-core';
 import {
   CancelRequestSchema,
   ChatRequestSchema,
@@ -270,7 +270,22 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
       return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
     }
 
-    return c.json({ error: 'not_implemented', detail: NOT_IMPLEMENTED_MESSAGE }, 501);
+    const id = c.req.param('id');
+    const approvalId = c.req.param('approvalId');
+    const session = await harness.getSession(id);
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    try {
+      await harness.decideToolApproval(id, approvalId, parsed.data.decision);
+      return c.body(null, 204);
+    } catch (error) {
+      if (error instanceof GateNotFoundError) {
+        return c.json({ error: 'not_found', detail: error.message }, 404);
+      }
+      return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
+    }
   });
 
   app.post('/sessions/:id/approve-plan', async (c) => notImplemented(c, CAPABILITIES.decide));
