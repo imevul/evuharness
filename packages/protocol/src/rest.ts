@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AttachmentRefSchema } from './attachments.js';
 import { ContextMenuDescriptorSchema, ContextRefSchema } from './context-menus.js';
 import { ApprovalDecisionSchema, AskUserAnswerSchema, PendingGatesSchema } from './gates.js';
 import {
@@ -10,10 +11,16 @@ import {
 } from './session.js';
 import { ProviderOverrideSchema, ReasoningEffortSchema } from './settings.js';
 
-/** A user message plus the structured references its chips produced. */
+/**
+ * A user message plus the structured references its chips produced.
+ *
+ * `refs` are context-menu picks. `attachments` are image/file chips from the
+ * composer attach control. Both ride the wire so core never re-parses prose.
+ */
 export const UserTurnInputSchema = z.object({
   text: z.string(),
   refs: z.array(ContextRefSchema).default([]),
+  attachments: z.array(AttachmentRefSchema).default([]),
 });
 export type UserTurnInput = z.infer<typeof UserTurnInputSchema>;
 
@@ -141,6 +148,13 @@ export const ActiveProviderSnapshotSchema = z.object({
 });
 export type ActiveProviderSnapshot = z.infer<typeof ActiveProviderSnapshotSchema>;
 
+export const HarnessFeaturesSnapshotSchema = z.object({
+  settings: z.boolean(),
+  effort: z.boolean(),
+  attachments: z.boolean(),
+});
+export type HarnessFeaturesSnapshot = z.infer<typeof HarnessFeaturesSnapshotSchema>;
+
 export const StatusResponseSchema = z.object({
   ready: z.boolean(),
   modes: z.array(ChatModeIdSchema),
@@ -150,6 +164,8 @@ export const StatusResponseSchema = z.object({
   providerConfigured: z.boolean(),
   toolCount: z.number().int().nonnegative(),
   contextMenuCount: z.number().int().nonnegative(),
+  /** Effective feature flags from harness config. */
+  features: HarnessFeaturesSnapshotSchema.optional(),
 });
 export type StatusResponse = z.infer<typeof StatusResponseSchema>;
 

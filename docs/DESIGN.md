@@ -69,6 +69,14 @@ what lets a terminal surface map the same tokens to glyphs.
 Not every item becomes a chip: a menu or item may insert plain text instead, so
 snippet and emoji style menus work without pretending to be references.
 
+### Attachments
+
+When `features.attachments` is on, the composer exposes an Attach control. Picked
+images and files become the same chip chrome as context-menu picks, with wire
+tokens like `[image:shot.png]` / `[file:notes.txt]` plus a structured
+`attachments[]` array on send. Transcript rows may echo attachment chips (name
+and kind) without re-embedding large data URLs.
+
 ## Gates
 
 Tool approval, plan approval, ask-user, and mode-switch requests are modal

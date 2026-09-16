@@ -1,4 +1,5 @@
-import type { ContextRef } from '@evu/harness-protocol';
+import type { AttachmentKind, AttachmentRef, ContextRef } from '@evu/harness-protocol';
+import { attachmentToken } from '@evu/harness-protocol';
 
 /**
  * A composer pick as the UI kit tracks it.
@@ -14,10 +15,26 @@ export interface ComposerChipRef extends ContextRef {
   asChip: boolean;
 }
 
+/**
+ * An attachment chip tracked alongside context-menu refs.
+ *
+ * Wire text carries `attachmentToken(kind, name)`; the structured payload rides
+ * `attachments[]` on send so core never re-parses the chip label.
+ */
+export interface ComposerAttachment extends AttachmentRef {
+  label: string;
+  icon?: string;
+  tone?: 'neutral' | 'accent' | 'warn';
+  /** Always true for attachment chips. */
+  asChip: true;
+  token: string;
+}
+
 export interface ComposerValue {
   text: string;
   caret: number;
   refs: ComposerChipRef[];
+  attachments: ComposerAttachment[];
 }
 
 /** Strip UI-only fields so a send payload matches `ContextRef`. */
@@ -34,11 +51,31 @@ export function toWireRefs(refs: readonly ComposerChipRef[]): ContextRef[] {
   });
 }
 
+/** Strip UI-only fields so a send payload matches `AttachmentRef`. */
+export function toWireAttachments(attachments: readonly ComposerAttachment[]): AttachmentRef[] {
+  return attachments.map((attachment) => {
+    const wire: AttachmentRef = {
+      id: attachment.id,
+      kind: attachment.kind,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+    };
+    if (attachment.size !== undefined) wire.size = attachment.size;
+    if (attachment.url !== undefined) wire.url = attachment.url;
+    if (attachment.text !== undefined) wire.text = attachment.text;
+    return wire;
+  });
+}
+
 export function isChipElement(node: Node): node is HTMLElement {
   return node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.harness === 'chip';
 }
 
-/** Build an atomic chip node. `contenteditable=false` makes backspace delete it whole. */
+export function isAttachmentChipElement(node: Node): node is HTMLElement {
+  return isChipElement(node) && (node as HTMLElement).dataset.kind === 'attachment';
+}
+
+/** Build a context-menu chip node. `contenteditable=false` makes backspace delete it whole. */
 export function createChipElement(doc: Document, ref: ComposerChipRef): HTMLElement {
   const chip = doc.createElement('span');
   chip.dataset.harness = 'chip';
@@ -58,19 +95,54 @@ export function createChipElement(doc: Document, ref: ComposerChipRef): HTMLElem
     chip.dataset.payload = JSON.stringify(ref.payload);
   }
 
-  if (ref.icon !== undefined && ref.icon !== '') {
-    const icon = doc.createElement('span');
-    icon.dataset.harness = 'chip-icon';
-    icon.textContent = ref.icon;
-    chip.appendChild(icon);
+  appendChipVisuals(chip, ref.icon, ref.label);
+  return chip;
+}
+
+/** Build an attachment chip that serializes into `attachments[]` plus a wire token. */
+export function createAttachmentChipElement(doc: Document, attachment: ComposerAttachment): HTMLElement {
+  const chip = doc.createElement('span');
+  chip.dataset.harness = 'chip';
+  chip.dataset.kind = 'attachment';
+  chip.contentEditable = 'false';
+  chip.dataset.id = attachment.id;
+  chip.dataset.token = attachment.token;
+  chip.dataset.label = attachment.label;
+  chip.dataset.attachmentKind = attachment.kind;
+  chip.dataset.name = attachment.name;
+  chip.dataset.mimeType = attachment.mimeType;
+  if (attachment.size !== undefined) {
+    chip.dataset.size = String(attachment.size);
+  }
+  if (attachment.url !== undefined) {
+    chip.dataset.url = attachment.url;
+  }
+  if (attachment.text !== undefined) {
+    chip.dataset.text = attachment.text;
+  }
+  if (attachment.icon !== undefined && attachment.icon !== '') {
+    chip.dataset.icon = attachment.icon;
+  }
+  if (attachment.tone !== undefined) {
+    chip.dataset.tone = attachment.tone;
   }
 
-  const label = doc.createElement('span');
-  label.dataset.harness = 'chip-label';
-  label.textContent = ref.label;
-  chip.appendChild(label);
-
+  appendChipVisuals(chip, attachment.icon, attachment.label);
   return chip;
+}
+
+function appendChipVisuals(chip: HTMLElement, icon: string | undefined, label: string): void {
+  if (icon !== undefined && icon !== '') {
+    const el = chip.ownerDocument.createElement('span');
+    el.dataset.harness = 'chip-icon';
+    el.textContent = icon;
+    chip.appendChild(el);
+  }
+
+  const labelEl = chip.ownerDocument.createElement('span');
+  labelEl.dataset.harness = 'chip-label';
+  labelEl.textContent = label;
+  chip.appendChild(labelEl);
 }
 
 function readChipRef(el: HTMLElement): ComposerChipRef {
@@ -111,13 +183,41 @@ function readChipRef(el: HTMLElement): ComposerChipRef {
   return ref;
 }
 
+function readAttachmentChip(el: HTMLElement): ComposerAttachment {
+  const kindRaw = el.dataset.attachmentKind;
+  const kind: AttachmentKind = kindRaw === 'image' ? 'image' : 'file';
+  const name = el.dataset.name ?? el.dataset.label ?? 'file';
+  const tone = el.dataset.tone;
+  const sizeRaw = el.dataset.size;
+  const size =
+    sizeRaw !== undefined && sizeRaw !== '' && Number.isFinite(Number(sizeRaw))
+      ? Number(sizeRaw)
+      : undefined;
+
+  const attachment: ComposerAttachment = {
+    id: el.dataset.id ?? '',
+    kind,
+    name,
+    mimeType: el.dataset.mimeType ?? 'application/octet-stream',
+    label: el.dataset.label ?? name,
+    asChip: true,
+    token: el.dataset.token ?? attachmentToken(kind, name),
+  };
+  if (size !== undefined) attachment.size = size;
+  if (el.dataset.url !== undefined && el.dataset.url !== '') attachment.url = el.dataset.url;
+  if (el.dataset.text !== undefined) attachment.text = el.dataset.text;
+  if (el.dataset.icon !== undefined) attachment.icon = el.dataset.icon;
+  if (tone === 'neutral' || tone === 'accent' || tone === 'warn') attachment.tone = tone;
+  return attachment;
+}
+
 interface WalkCaret {
   node: Node;
   offset: number;
 }
 
 /**
- * Walk a contenteditable root into wire text plus structured refs.
+ * Walk a contenteditable root into wire text plus structured refs and attachments.
  *
  * Chip elements contribute their `data-token` (not the visible label) so the
  * model-facing string stays byte-stable. Soft line breaks become `\n`.
@@ -127,6 +227,7 @@ export function serializeComposer(root: HTMLElement, caret?: WalkCaret | null): 
   let caretIndex = 0;
   let caretSet = false;
   const refs: ComposerChipRef[] = [];
+  const attachments: ComposerAttachment[] = [];
 
   const markCaret = (beforeLength: number, withinOffset: number, length: number) => {
     if (caretSet || caret === null || caret === undefined) return;
@@ -159,14 +260,17 @@ export function serializeComposer(root: HTMLElement, caret?: WalkCaret | null): 
     }
 
     if (isChipElement(el)) {
-      const ref = readChipRef(el);
-      const token = ref.token ?? '';
+      const token = el.dataset.token ?? '';
       if (caret !== null && caret !== undefined) {
         if (caret.node === el || el.contains(caret.node)) {
           markCaret(text.length, token.length, token.length);
         }
       }
-      refs.push(ref);
+      if (isAttachmentChipElement(el)) {
+        attachments.push(readAttachmentChip(el));
+      } else {
+        refs.push(readChipRef(el));
+      }
       text += token;
       return;
     }
@@ -182,7 +286,7 @@ export function serializeComposer(root: HTMLElement, caret?: WalkCaret | null): 
     caretIndex = text.length;
   }
 
-  return { text, caret: caretIndex, refs };
+  return { text, caret: caretIndex, refs, attachments };
 }
 
 /**
@@ -215,7 +319,7 @@ export function mergeComposerRefs(
 }
 
 /**
- * Paint wire text + chip refs into a contenteditable root.
+ * Paint wire text + chip refs + attachment chips into a contenteditable root.
  *
  * Chip tokens in `value.text` become atomic chip elements; everything else stays
  * a text node. Used after a catalog pick (or a full reset), not on every keystroke.
@@ -224,25 +328,36 @@ export function paintComposer(root: HTMLElement, value: ComposerValue): void {
   const doc = root.ownerDocument;
   root.replaceChildren();
 
-  const chips = value.refs.filter(
-    (ref) => ref.asChip && ref.token !== undefined && ref.token !== '',
-  );
-  let cursor = 0;
+  type ChipPaint = { token: string; paint: () => HTMLElement };
+  const chips: ChipPaint[] = [
+    ...value.refs
+      .filter((ref) => ref.asChip && ref.token !== undefined && ref.token !== '')
+      .map((ref) => ({
+        token: ref.token as string,
+        paint: () => createChipElement(doc, ref),
+      })),
+    ...value.attachments
+      .filter((attachment) => attachment.token !== '')
+      .map((attachment) => ({
+        token: attachment.token,
+        paint: () => createAttachmentChipElement(doc, attachment),
+      })),
+  ];
 
-  for (const ref of chips) {
-    const token = ref.token;
-    if (token === undefined || token === '') {
-      continue;
-    }
-    const index = value.text.indexOf(token, cursor);
+  // Paint in text order so overlapping token searches stay left-to-right.
+  chips.sort((a, b) => value.text.indexOf(a.token) - value.text.indexOf(b.token));
+
+  let cursor = 0;
+  for (const chip of chips) {
+    const index = value.text.indexOf(chip.token, cursor);
     if (index === -1) {
       continue;
     }
     if (index > cursor) {
       root.appendChild(doc.createTextNode(value.text.slice(cursor, index)));
     }
-    root.appendChild(createChipElement(doc, ref));
-    cursor = index + token.length;
+    root.appendChild(chip.paint());
+    cursor = index + chip.token.length;
   }
 
   if (cursor < value.text.length) {
@@ -444,4 +559,116 @@ export function deleteChipAfterCaret(root: HTMLElement): boolean {
   }
 
   return true;
+}
+
+/** Build a composer attachment from a browser File (images as data URLs, text inlined). */
+export async function attachmentFromFile(
+  file: File,
+  idFactory: () => string = () => crypto.randomUUID(),
+): Promise<ComposerAttachment> {
+  const id = idFactory();
+  const mimeType = file.type || 'application/octet-stream';
+  const isImage = mimeType.startsWith('image/');
+
+  if (isImage) {
+    const url = await readFileAsDataUrl(file);
+    const token = attachmentToken('image', file.name);
+    return {
+      id,
+      kind: 'image',
+      name: file.name,
+      mimeType,
+      size: file.size,
+      url,
+      label: file.name,
+      icon: 'image',
+      tone: 'accent',
+      asChip: true,
+      token,
+    };
+  }
+
+  const text = await readFileAsText(file);
+  const token = attachmentToken('file', file.name);
+  return {
+    id,
+    kind: 'file',
+    name: file.name,
+    mimeType,
+    size: file.size,
+    ...(text === undefined ? {} : { text }),
+    label: file.name,
+    icon: 'file',
+    tone: 'neutral',
+    asChip: true,
+    token,
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(typeof reader.result === 'string' ? reader.result : '');
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('read_failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readFileAsText(file: File): Promise<string | undefined> {
+  // Skip obviously binary types; the model gets a name-only stub instead.
+  if (
+    mimeLooksBinary(file.type) ||
+    file.size > 256 * 1024
+  ) {
+    return Promise.resolve(undefined);
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === 'string' ? reader.result : '';
+      // Reject if the buffer looks binary (NUL bytes).
+      if (value.includes('\u0000')) {
+        resolve(undefined);
+        return;
+      }
+      resolve(value);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('read_failed'));
+    reader.readAsText(file);
+  });
+}
+
+function mimeLooksBinary(mime: string): boolean {
+  if (mime === '' || mime.startsWith('text/') || mime === 'application/json') {
+    return false;
+  }
+  if (
+    mime === 'application/javascript' ||
+    mime === 'application/xml' ||
+    mime.endsWith('+json') ||
+    mime.endsWith('+xml')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Insert an attachment chip at the caret into a composer value. */
+export function insertAttachmentAtCaret(
+  value: ComposerValue,
+  attachment: ComposerAttachment,
+): ComposerValue {
+  const before = value.text.slice(0, value.caret);
+  const after = value.text.slice(value.caret);
+  const spacerBefore = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
+  const spacerAfter = after.length > 0 && !after.startsWith(' ') && !after.startsWith('\n') ? ' ' : '';
+  const inserted = `${spacerBefore}${attachment.token}${spacerAfter}`;
+  return {
+    text: `${before}${inserted}${after}`,
+    caret: before.length + inserted.length,
+    refs: value.refs,
+    attachments: [...value.attachments, attachment],
+  };
 }

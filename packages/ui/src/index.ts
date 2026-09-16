@@ -47,15 +47,21 @@ export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCat
 export { Transcript, type TranscriptProps } from './components/Transcript.js';
 export { UsageFooter, type UsageFooterProps } from './components/UsageFooter.js';
 export {
+  attachmentFromFile,
+  type ComposerAttachment,
   type ComposerChipRef,
   type ComposerValue,
+  createAttachmentChipElement,
   createChipElement,
   deleteChipAfterCaret,
   deleteChipBeforeCaret,
+  insertAttachmentAtCaret,
+  isAttachmentChipElement,
   mergeComposerRefs,
   paintComposer,
   serializeComposer,
   setComposerCaret,
+  toWireAttachments,
   toWireRefs,
 } from './composer/serialize.js';
 export {

@@ -191,6 +191,7 @@ export function useContextMenu(options: UseContextMenuOptions): ContextMenuState
         text: next.text,
         caret: next.caret,
         refs: [...value.refs, ref],
+        attachments: value.attachments,
       });
 
       // The trigger text is gone, so there is nothing left to dismiss; clearing the

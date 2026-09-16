@@ -107,7 +107,7 @@ describe('follow-up queue in useHarnessSession', () => {
 
     expect(cancels).toContain('follow_up');
     expect(requests).toHaveLength(2);
-    expect(requests[0]?.messages).toEqual([{ text: 'first', refs: [] }]);
+    expect(requests[0]?.messages).toEqual([{ text: 'first', refs: [], attachments: [] }]);
     expect(requests[1]?.messages.map((message) => message.text)).toEqual(['alpha', 'beta']);
     expect(requests[1]?.mode).toBe('agent');
   });

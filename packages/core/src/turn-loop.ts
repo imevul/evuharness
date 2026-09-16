@@ -21,7 +21,14 @@ import {
   BUILTIN_TOOL_NAMES,
   ChatModeIdSchema,
   PlanStepSchema,
+  textFromMessageContent,
 } from '@evu/harness-protocol';
+import {
+  buildUserMessageContent,
+  sanitizeAttachments,
+  transcriptAttachments,
+  transcriptTextForUserTurn,
+} from './attachments.js';
 import type { CompactContext } from './context-compaction.js';
 import { defaultCompactContext } from './context-compaction.js';
 import type { ContextMenuRegistry } from './context-menus/index.js';
@@ -114,6 +121,8 @@ export interface TurnControllerDeps {
    * truncating compactor. Does not rewrite stored session messages.
    */
   compactContext?: CompactContext;
+  /** When false, attachment payloads on the request are dropped. */
+  attachmentsEnabled?: boolean;
   now: () => string;
 }
 
@@ -411,7 +420,7 @@ async function* executeTurn(
     messages: [...loaded.messages, ...resolved.messages],
     transcript: [...loaded.transcript, ...resolved.rows],
     ...(loaded.title === DEFAULT_SESSION_TITLE
-      ? { title: titleFromMessage(resolved.messages[0]?.content ?? '') }
+      ? { title: titleFromMessage(textFromMessageContent(resolved.messages[0]?.content ?? '')) }
       : {}),
   });
 
@@ -1698,13 +1707,25 @@ async function resolveUserTurns(
       }
     }
 
-    const content =
+    const baseText =
       contextBlocks.length === 0
         ? text
         : `${text}\n\n<context>\n${contextBlocks.join('\n\n')}\n</context>`;
 
+    const attachments = sanitizeAttachments(
+      input.attachments,
+      deps.attachmentsEnabled === true,
+    );
+    const content = buildUserMessageContent(baseText, attachments);
+    const rowAttachments = transcriptAttachments(attachments);
+
     messages.push({ role: 'user', content });
-    rows.push({ kind: 'user', text: content, createdAt: deps.now() });
+    rows.push({
+      kind: 'user',
+      text: transcriptTextForUserTurn(content),
+      ...(rowAttachments === undefined ? {} : { attachments: rowAttachments }),
+      createdAt: deps.now(),
+    });
   }
 
   return { messages, rows, promptExtra };

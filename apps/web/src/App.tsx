@@ -248,6 +248,7 @@ export function App() {
             onCancel={() => void session.cancel()}
             turnInProgress={session.turn !== null}
             disabled={activeId === null}
+            attachmentsEnabled={status?.features?.attachments === true}
             placeholder={activeId === null ? 'Create a chat to begin' : 'Send a message…'}
           />
 

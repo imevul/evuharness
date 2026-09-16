@@ -421,6 +421,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     toolApprovalRule,
     ...(skills === null ? {} : { skills }),
     compactContext: config.compactContext ?? defaultCompactContext,
+    attachmentsEnabled: features.attachments,
     now,
   });
 
@@ -457,6 +458,11 @@ export function createHarness(config: HarnessConfig = {}): Harness {
         providerConfigured: stored.providers.length > 0,
         toolCount: tools.size,
         contextMenuCount: contextMenus.size,
+        features: {
+          settings: features.settings,
+          effort: features.effort,
+          attachments: features.attachments,
+        },
       };
     },
 

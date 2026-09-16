@@ -6,6 +6,7 @@
  * non-web surface from needing its own definitions.
  */
 
+export * from './attachments.js';
 export * from './context-menus.js';
 export * from './events.js';
 export * from './gates.js';

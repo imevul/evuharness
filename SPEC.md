@@ -102,6 +102,13 @@ are allowlisted (`https:` and `data:image/*`). A live stream stays plain text so
 a half-closed fence does not flash a broken diagram on every token. A dedicated
 mermaid tool is not part of the harness: models already emit fences.
 
+User turns may carry structured **attachments** (images and files) alongside
+context-menu refs. Attachment chips serialize to stable tokens in the wire text
+plus an `attachments[]` array on the request. Allowlisted images become
+OpenAI-compatible multimodal `image_url` parts on the model thread; non-image
+file text is wrapped as untrusted data. The feature is gated by
+`features.attachments` (default off).
+
 Sessions also carry pending gate state, cumulative token counts, and an optional
 workspace scope.
 
