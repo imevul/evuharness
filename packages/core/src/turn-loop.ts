@@ -12,11 +12,7 @@ import type {
 } from '@evu/harness-protocol';
 import type { ContextMenuRegistry } from './context-menus/index.js';
 import { abortError, isAbortError, type ProviderAdapter } from './fake-provider.js';
-import {
-  GateCancelledError,
-  GateNotFoundError,
-  type GateWaiterRegistry,
-} from './gate-waiters.js';
+import { GateCancelledError, GateNotFoundError, type GateWaiterRegistry } from './gate-waiters.js';
 import { digestToolCall, type GrantStore, grantForDecision, resolveGrant } from './grants.js';
 import { applyTurnPatch, type TurnPin } from './mode-pinning.js';
 import type { ProviderCompleteInput } from './openai-client.js';
@@ -651,7 +647,9 @@ async function removePendingToolApproval(
   await persist(deps, sessionId, {
     pending: {
       ...latest.pending,
-      toolApprovals: latest.pending.toolApprovals.filter((entry) => entry.approvalId !== approvalId),
+      toolApprovals: latest.pending.toolApprovals.filter(
+        (entry) => entry.approvalId !== approvalId,
+      ),
     },
   });
 }

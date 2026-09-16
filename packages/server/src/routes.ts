@@ -1,4 +1,4 @@
-import { type Harness, GateNotFoundError, setSessionMode } from '@evu/harness-core';
+import { GateNotFoundError, type Harness, setSessionMode } from '@evu/harness-core';
 import {
   CancelRequestSchema,
   ChatRequestSchema,

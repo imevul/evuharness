@@ -73,15 +73,6 @@ function toolEvents(id: string, name: string, args: Record<string, unknown> = {}
   ];
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) {
-      throw new Error('waitFor timed out');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 /**
  * Run a turn until the first tool-approval gate opens, then hand control back.
@@ -98,11 +89,13 @@ async function runUntilApproval(
   finish: () => Promise<StreamEvent[]>;
 }> {
   const events: StreamEvent[] = [];
-  const iterator = harness.runTurn({
-    sessionId,
-    mode,
-    messages: [{ text: 'hi' }],
-  })[Symbol.asyncIterator]();
+  const iterator = harness
+    .runTurn({
+      sessionId,
+      mode,
+      messages: [{ text: 'hi' }],
+    })
+    [Symbol.asyncIterator]();
 
   let approval: Extract<StreamEvent, { event: 'tool_approval_required' }> | null = null;
   while (approval === null) {
