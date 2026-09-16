@@ -113,7 +113,7 @@ describe('createTruncatingCompactor', () => {
       sessionId: 'sess',
       mode: 'ask',
     };
-    await expect(compact(input)).resolves.toEqual([msg('system', 's'), msg('user', 'b')]);
+    expect(compact(input)).toEqual([msg('system', 's'), msg('user', 'b')]);
   });
 });
 
