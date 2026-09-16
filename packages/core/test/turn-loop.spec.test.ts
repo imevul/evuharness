@@ -1,9 +1,10 @@
 /**
  * Turn-loop specification checklist.
  *
- * Streaming, tool rounds, and cancellation are implemented. Remaining groups
- * stay skipped until their sprint. Do not delete a skipped test to make a run
- * green, and do not unskip one without an assertion.
+ * Streaming, tool rounds, cancellation, and follow-up queue drain are
+ * implemented. Remaining groups stay skipped until their sprint. Do not delete
+ * a skipped test to make a run green, and do not unskip one without an
+ * assertion.
  *
  * `SPEC.md` is the normative description of everything below.
  */
@@ -559,17 +560,223 @@ describe('turn loop: cancellation', () => {
 });
 
 describe('turn loop: follow-up queue', () => {
-  it.skip('cancels a live turn when a new user message arrives', () => {});
+  it('cancels a live turn when a new user message arrives', async () => {
+    const harness = runtime(
+      new FakeProvider([{ events: textEvents('slow answer'), delayMs: 40 }, { echo: true }]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
 
-  it.skip('reports reason follow_up for that cancel', () => {});
+    const firstEvents: StreamEvent[] = [];
+    const first = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'first' }],
+      })) {
+        firstEvents.push(event);
+      }
+    })();
 
-  it.skip('persists the interrupted turn before starting the next one', () => {});
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const secondEvents = await collect(harness, session.id, 'follow-up');
+    await first;
 
-  it.skip('drains several queued messages as a single next turn', () => {});
+    expect(firstEvents.at(-1)?.event).toBe('cancelled');
+    expect(secondEvents.at(-1)?.event).toBe('done');
+  });
 
-  it.skip('pins the queued turn to the mode sent with it', () => {});
+  it('reports reason follow_up for that cancel', async () => {
+    const harness = runtime(
+      new FakeProvider([{ events: textEvents('slow answer'), delayMs: 40 }, { echo: true }]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
 
-  it.skip('preserves queued message order', () => {});
+    const firstEvents: StreamEvent[] = [];
+    const first = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'first' }],
+      })) {
+        firstEvents.push(event);
+      }
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await collect(harness, session.id, 'follow-up');
+    await first;
+
+    expect(firstEvents.at(-1)).toMatchObject({ event: 'cancelled', reason: 'follow_up' });
+  });
+
+  it('persists the interrupted turn before starting the next one', async () => {
+    const provider = new FakeProvider([
+      { events: textEvents('partial text'), delayMs: 40 },
+      { echo: true },
+    ]);
+    const harness = runtime(provider);
+    const session = await harness.createSession({ mode: 'ask' });
+
+    let followUp: Promise<StreamEvent[]> | null = null;
+    const firstEvents: StreamEvent[] = [];
+    const first = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'first' }],
+      })) {
+        firstEvents.push(event);
+        if (event.event === 'delta' && followUp === null) {
+          followUp = collect(harness, session.id, 'second');
+        }
+      }
+    })();
+    await first;
+    expect(followUp).not.toBeNull();
+    await followUp;
+
+    const followUpCall = provider.calls[1];
+    expect(followUpCall).toBeDefined();
+    const roles = followUpCall?.messages.map((message) => message.role) ?? [];
+    const assistantIndex = roles.indexOf('assistant');
+    const usersAfterAssistant = followUpCall?.messages
+      .slice(assistantIndex + 1)
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content);
+
+    expect(assistantIndex).toBeGreaterThanOrEqual(0);
+    expect(followUpCall?.messages[assistantIndex]?.content).toContain('partial');
+    expect(usersAfterAssistant).toContain('second');
+    expect(firstEvents.at(-1)).toMatchObject({ event: 'cancelled', reason: 'follow_up' });
+
+    const stored = await harness.store.get(session.id);
+    expect(stored?.transcript.some((row) => row.cancelled === true)).toBe(true);
+  });
+
+  it('drains several queued messages as a single next turn', async () => {
+    const provider = new FakeProvider([
+      { events: textEvents('interrupted'), delayMs: 60 },
+      { echo: true },
+    ]);
+    const harness = runtime(provider);
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const first = (async () => {
+      for await (const _event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'first' }],
+      })) {
+        // Drain until cancelled.
+      }
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const followA = collect(harness, session.id, 'alpha');
+    const followB = collect(harness, session.id, 'beta');
+    const [eventsA, eventsB] = await Promise.all([followA, followB]);
+    await first;
+
+    const terminals = [...eventsA, ...eventsB].filter((event) => isTerminalEvent(event));
+    expect(terminals.filter((event) => event.event === 'done')).toHaveLength(1);
+    // One provider call for the interrupted turn, one for the drained follow-up.
+    expect(provider.calls).toHaveLength(2);
+
+    const followUpUsers =
+      provider.calls[1]?.messages
+        .filter((message) => message.role === 'user')
+        .map((message) => message.content) ?? [];
+    // History still includes the interrupted turn's user message; the drain appends both.
+    expect(followUpUsers.slice(-2)).toEqual(['alpha', 'beta']);
+  });
+
+  it('pins the queued turn to the mode sent with it', async () => {
+    const provider = new FakeProvider([
+      { events: textEvents('ask turn'), delayMs: 40 },
+      { echo: true },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, WRITE] });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const first = (async () => {
+      for await (const _event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'first' }],
+      })) {
+        // Drain until cancelled.
+      }
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await collect(harness, session.id, 'take over', 'agent');
+    await first;
+
+    const followUpTools = provider.calls[1]?.tools.map((tool) => tool.name) ?? [];
+    expect(followUpTools).toContain('write_note');
+    expect(followUpTools).toContain('echo');
+    expect((await harness.getSession(session.id))?.mode).toBe('agent');
+  });
+
+  it('preserves queued message order', async () => {
+    const provider = new FakeProvider([
+      { events: textEvents('interrupted'), delayMs: 60 },
+      { echo: true },
+    ]);
+    const harness = runtime(provider);
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const first = (async () => {
+      for await (const _event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'first' }],
+      })) {
+        // Drain until cancelled.
+      }
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    // Enqueue in a known order: first call must land in the queue before the second.
+    const second = harness.runTurn({
+      sessionId: session.id,
+      mode: 'ask',
+      messages: [{ text: 'one' }],
+    });
+    // Yield so the first follow-up enqueues before the second starts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const third = harness.runTurn({
+      sessionId: session.id,
+      mode: 'ask',
+      messages: [{ text: 'two' }, { text: 'three' }],
+    });
+
+    await Promise.all([
+      (async () => {
+        for await (const _event of second) {
+          // Drain.
+        }
+      })(),
+      (async () => {
+        for await (const _event of third) {
+          // Drain.
+        }
+      })(),
+      first,
+    ]);
+
+    const users =
+      provider.calls[1]?.messages
+        .filter((message) => message.role === 'user')
+        .map((message) => message.content) ?? [];
+    expect(users.slice(-3)).toEqual(['one', 'two', 'three']);
+
+    const stored = await harness.store.get(session.id);
+    const userRows = stored?.transcript.filter((row) => row.kind === 'user').map((row) => row.text);
+    expect(userRows).toEqual(['first', 'one', 'two', 'three']);
+  });
 });
 
 describe('turn loop: tool approval gate', () => {
