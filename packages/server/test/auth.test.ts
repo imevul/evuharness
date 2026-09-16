@@ -4,8 +4,8 @@ import {
   CAPABILITIES,
   CAPABILITY_WILDCARD,
   hasCapability,
-  resolveActor,
   ROUTE_CAPABILITIES,
+  resolveActor,
 } from '@evu/harness-server';
 import { describe, expect, it } from 'vitest';
 
@@ -77,12 +77,7 @@ describe('ROUTE_CAPABILITIES', () => {
   it('covers every sensitive route with one of the four capabilities', () => {
     const values = new Set(Object.values(ROUTE_CAPABILITIES));
     expect(values).toEqual(
-      new Set([
-        CAPABILITIES.read,
-        CAPABILITIES.chat,
-        CAPABILITIES.decide,
-        CAPABILITIES.administer,
-      ]),
+      new Set([CAPABILITIES.read, CAPABILITIES.chat, CAPABILITIES.decide, CAPABILITIES.administer]),
     );
     // Health is deliberately unauthenticated and must stay off this list.
     expect(Object.keys(ROUTE_CAPABILITIES).some((route) => route.includes('/health'))).toBe(false);

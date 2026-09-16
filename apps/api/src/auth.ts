@@ -1,9 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import {
-  actorHasCapability,
-  type AuthHooks,
-  CAPABILITY_WILDCARD,
-} from '@evu/harness-server';
+import { type AuthHooks, actorHasCapability, CAPABILITY_WILDCARD } from '@evu/harness-server';
 
 export interface DemoAuthOptions {
   /**
