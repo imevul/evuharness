@@ -123,6 +123,20 @@ describe('applySettingsUpdate', () => {
     });
     expect(cleared.providers[0]?.modelContextWindowOverrides).toEqual({ b: 1_024 });
   });
+
+  it('merges prompt patches without wiping sibling modes', () => {
+    const current = emptyStoredSettings();
+    current.prompts = { global: 'g0', perMode: { ask: 'a0', agent: 'ag0' } };
+
+    const next = applySettingsUpdate(current, {
+      prompts: { global: 'g1', perMode: { ask: 'a1' } },
+    });
+
+    expect(next.prompts).toEqual({
+      global: 'g1',
+      perMode: { ask: 'a1', agent: 'ag0' },
+    });
+  });
 });
 
 describe('createHarness settings', () => {
@@ -154,6 +168,34 @@ describe('createHarness settings', () => {
     const stored = await runtime.getStoredProvider();
     expect(stored?.apiKey).toBe('from-env');
     expect(JSON.stringify(await runtime.getSettings())).not.toContain('from-env');
+  });
+
+  it('persists editable prompts and feeds the same compose path as preview', async () => {
+    const runtime = createHarness({
+      prompts: {
+        global: 'seed',
+        dynamic: [{ id: 'slot', label: 'Slot', render: () => 'live-slot' }],
+      },
+    });
+
+    await runtime.updateSettings({
+      prompts: {
+        global: 'edited global',
+        perMode: { ask: 'edited ask' },
+      },
+    });
+
+    const settings = await runtime.getSettings();
+    expect(settings.prompts).toEqual({
+      global: 'edited global',
+      perMode: { ask: 'edited ask' },
+    });
+
+    const preview = await runtime.previewPrompt({ mode: 'ask' });
+    expect(preview.text).toContain('edited global');
+    expect(preview.text).toContain('edited ask');
+    expect(preview.text).toContain('live-slot');
+    expect(preview.sections.find((section) => section.id === 'slot')?.dynamic).toBe(true);
   });
 });
 

@@ -67,8 +67,9 @@ export function emptyStoredSettings(): StoredSettings {
 /**
  * True when the store still looks like a never-written default.
  *
- * Checking only `providers.length` would re-seed on every read when a host has
- * policy (or prompt) edits but no provider profiles, wiping those saves.
+ * Used to decide whether env/config seeding may run. Checking only
+ * `providers.length` would re-seed on every read when a host has prompts or
+ * policy edits but no provider profiles, wiping those saves.
  */
 export function isPristineStoredSettings(settings: StoredSettings): boolean {
   return (

@@ -410,6 +410,33 @@ describe('settings', () => {
     expect(response.status).toBe(400);
   });
 
+  it('patches prompts and reflects them in the compose preview', async () => {
+    const response = await app.request('/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        prompts: {
+          global: 'patched global',
+          perMode: { ask: 'patched ask' },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const settings = (await response.json()) as {
+      prompts: { global: string; perMode: Record<string, string> };
+    };
+    expect(settings.prompts.global).toBe('patched global');
+    expect(settings.prompts.perMode.ask).toBe('patched ask');
+
+    const preview = (await (await get('/prompt/preview?mode=ask')).json()) as {
+      text: string;
+      sections: { id: string; dynamic: boolean }[];
+    };
+    expect(preview.text).toContain('patched global');
+    expect(preview.text).toContain('patched ask');
+  });
+
   it('lists models as catalog entries after a provider is configured', async () => {
     app = createHarnessRouter({
       harness: build({
