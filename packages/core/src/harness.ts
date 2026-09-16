@@ -18,6 +18,8 @@ import type {
   ToolCatalogResponse,
 } from '@evu/harness-protocol';
 import { builtinGateTools } from './builtin-tools.js';
+import type { CompactContext } from './context-compaction.js';
+import { defaultCompactContext } from './context-compaction.js';
 import type { ContextMenuDefinition } from './context-menus/index.js';
 import { ContextMenuRegistry } from './context-menus/index.js';
 import type { ProviderAdapter } from './fake-provider.js';
@@ -105,6 +107,13 @@ export interface HarnessConfig {
    * prompt and `load_skill` is registered for leading-system injection.
    */
   skills?: SkillCatalog;
+  /**
+   * Context compaction hook invoked when building the outbound model thread.
+   *
+   * Defaults to a naive truncating compactor. Pass a custom hook to summarize,
+   * or an identity function to disable compaction.
+   */
+  compactContext?: CompactContext;
   policies?: HarnessPolicies;
   features?: HarnessFeatures;
   idFactory?: () => string;
@@ -411,6 +420,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
     toolApprovalRule,
     ...(skills === null ? {} : { skills }),
+    compactContext: config.compactContext ?? defaultCompactContext,
     now,
   });
 

@@ -22,11 +22,14 @@ import {
   ChatModeIdSchema,
   PlanStepSchema,
 } from '@evu/harness-protocol';
+import type { CompactContext } from './context-compaction.js';
+import { defaultCompactContext } from './context-compaction.js';
 import type { ContextMenuRegistry } from './context-menus/index.js';
 import { abortError, isAbortError, type ProviderAdapter } from './fake-provider.js';
 import { GateCancelledError, GateNotFoundError, type GateWaiterRegistry } from './gate-waiters.js';
 import { digestToolCall, type GrantStore, grantForDecision, resolveGrant } from './grants.js';
 import { applyTurnPatch, type ModeWriter, type TurnPin } from './mode-pinning.js';
+import { resolveContextWindow } from './model-catalog.js';
 import type { ProviderCompleteInput } from './openai-client.js';
 import { mergeIntoLeadingSystemMessage } from './prompts.js';
 import { resolveProviderSelection } from './provider-override.js';
@@ -103,6 +106,14 @@ export interface TurnControllerDeps {
   toolApprovalRule(name: string): Promise<'always_allow' | 'requires_approval'>;
   /** Host skill catalog; required for `load_skill` mid-turn injection. */
   skills?: SkillCatalog;
+  /**
+   * Context compaction hook.
+   *
+   * Invoked every time the turn loop builds the outbound model thread for a
+   * provider `complete` call (each tool round). Defaults to the naive
+   * truncating compactor. Does not rewrite stored session messages.
+   */
+  compactContext?: CompactContext;
   now: () => string;
 }
 
@@ -429,7 +440,17 @@ async function* executeTurn(
       }
 
       const atCap = toolRounds >= maxToolRounds;
-      const thread = composeThread(pin.systemPrompt, record.messages, promptExtra);
+      const composed = composeThread(pin.systemPrompt, record.messages, promptExtra);
+      const maxContextTokens = resolveContextWindow(profile, model);
+      const compact = deps.compactContext ?? defaultCompactContext;
+      const thread = await Promise.resolve(
+        compact({
+          messages: composed,
+          sessionId,
+          mode: request.mode,
+          ...(maxContextTokens === undefined ? {} : { maxContextTokens }),
+        }),
+      );
       if (atCap) {
         thread.push({ role: 'user', content: CAP_NUDGE });
         yield { event: 'status', sessionId, phase: 'finalizing' };
