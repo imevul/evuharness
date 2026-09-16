@@ -78,14 +78,31 @@ interface LiveTurn {
 }
 
 /**
+ * One follow-up send waiting to be drained into the next turn.
+ *
+ * Concurrent `runTurn` calls for the same session enqueue here before canceling
+ * the live turn, so several mid-turn messages become a single next request.
+ */
+interface QueuedFollowUp {
+  messages: UserTurnInput[];
+  mode: ChatModeId;
+  provider: ChatRequest['provider'];
+  workspaceId: string | undefined;
+}
+
+/**
  * Per-session turn runtime.
  *
- * One live turn at a time: a second `runTurn` for the same session cancels the
- * first with `follow_up` and then starts. Persistence goes through `TurnPatch`
- * so a concurrent set-mode cannot be clobbered.
+ * One live turn at a time. A second `runTurn` for the same session enqueues its
+ * messages, cancels the live turn with `follow_up`, and the next starter drains
+ * every queued send as one turn (last send wins for the mode pin). Persistence
+ * goes through `TurnPatch` so a concurrent set-mode cannot be clobbered.
  */
 export function createTurnController(deps: TurnControllerDeps): TurnController {
   const live = new Map<string, LiveTurn>();
+  const queues = new Map<string, QueuedFollowUp[]>();
+  /** Serializes turn starts so concurrent follow-ups drain once, not race. */
+  const startLocks = new Map<string, Promise<void>>();
 
   async function cancel(sessionId: string, reason: CancelReason = 'operator'): Promise<void> {
     const handle = live.get(sessionId);
@@ -130,31 +147,64 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
       sessionId = created.id;
     }
 
+    const queue = queues.get(sessionId) ?? [];
+    queue.push({
+      messages: request.messages,
+      mode: request.mode,
+      provider: request.provider,
+      workspaceId: request.workspaceId,
+    });
+    queues.set(sessionId, queue);
+
     if (live.has(sessionId)) {
       await cancel(sessionId, 'follow_up');
     }
 
-    const controller = new AbortController();
-    let resolveFinished = (): void => {};
-    const finished = new Promise<void>((resolve) => {
-      resolveFinished = resolve;
+    const previous = startLocks.get(sessionId) ?? Promise.resolve();
+    let releaseStart = (): void => {};
+    const ourStart = new Promise<void>((resolve) => {
+      releaseStart = resolve;
     });
-    const handle: LiveTurn = { controller, reason: null, finished, resolveFinished };
-    live.set(sessionId, handle);
-
-    const onExternalAbort = () => {
-      deps.gates.cancelSession(sessionId);
-      controller.abort();
-    };
-    signal?.addEventListener('abort', onExternalAbort, { once: true });
+    startLocks.set(
+      sessionId,
+      previous.then(() => ourStart),
+    );
+    await previous;
 
     try {
-      yield* executeTurn(deps, request, sessionId, handle);
+      const pending = queues.get(sessionId) ?? [];
+      if (pending.length === 0) {
+        // Another concurrent starter already drained including this request.
+        return;
+      }
+      queues.set(sessionId, []);
+
+      const drained = drainFollowUps(sessionId, pending);
+
+      const controller = new AbortController();
+      let resolveFinished = (): void => {};
+      const finished = new Promise<void>((resolve) => {
+        resolveFinished = resolve;
+      });
+      const handle: LiveTurn = { controller, reason: null, finished, resolveFinished };
+      live.set(sessionId, handle);
+
+      const onExternalAbort = () => {
+        deps.gates.cancelSession(sessionId);
+        controller.abort();
+      };
+      signal?.addEventListener('abort', onExternalAbort, { once: true });
+
+      try {
+        yield* executeTurn(deps, drained, sessionId, handle);
+      } finally {
+        signal?.removeEventListener('abort', onExternalAbort);
+        deps.gates.cancelSession(sessionId);
+        live.delete(sessionId);
+        handle.resolveFinished();
+      }
     } finally {
-      signal?.removeEventListener('abort', onExternalAbort);
-      deps.gates.cancelSession(sessionId);
-      live.delete(sessionId);
-      handle.resolveFinished();
+      releaseStart();
     }
   }
 
@@ -163,6 +213,27 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
     cancel,
     decideToolApproval,
     isLive: (sessionId) => live.has(sessionId),
+  };
+}
+
+/**
+ * Collapse queued follow-ups into one chat request.
+ *
+ * Message order is FIFO across sends. The mode pin and provider override come
+ * from the last send — that is the user's most recent intent for the drained
+ * turn.
+ */
+function drainFollowUps(sessionId: string, pending: QueuedFollowUp[]): ChatRequest {
+  const last = pending.at(-1);
+  if (last === undefined) {
+    throw new Error('drainFollowUps requires at least one queued follow-up');
+  }
+  return {
+    sessionId,
+    mode: last.mode,
+    messages: pending.flatMap((entry) => entry.messages),
+    ...(last.provider === undefined ? {} : { provider: last.provider }),
+    ...(last.workspaceId === undefined ? {} : { workspaceId: last.workspaceId }),
   };
 }
 
