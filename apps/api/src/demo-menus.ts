@@ -1,20 +1,53 @@
-import { type ContextMenuDefinition, commandsMenu, mentionsMenu } from '@evu/harness-core';
+import {
+  type ContextMenuDefinition,
+  type SkillCatalog,
+  commandsMenu,
+  mentionsMenu,
+  skillsMenu,
+} from '@evu/harness-core';
 import type { ContextMenuNode } from '@evu/harness-protocol';
+
+const COMMAND_NODES = [
+  {
+    kind: 'item',
+    id: 'explain',
+    label: 'explain',
+    hint: 'Explain what is going on',
+  },
+  {
+    kind: 'item',
+    id: 'plan',
+    label: 'plan',
+    hint: 'Switch to plan mode and propose a plan',
+  },
+] satisfies ContextMenuNode[];
 
 /**
  * Context menus for the demo.
  *
- * Three entries over one engine: `@` mentions, `/` commands, and a third trigger to
- * show that a host adds one by adding a catalog entry rather than by touching the
- * composer. The third one is the point of the whole design — if registering `#`
- * needed new UI code, the catalog would not be doing its job.
+ * Three entries over one engine: `@` mentions, `/` commands (plus skills when a
+ * catalog is provided), and a third trigger to show that a host adds one by
+ * adding a catalog entry rather than by touching the composer.
  */
-export function demoMenus(): ContextMenuDefinition[] {
+export function demoMenus(skills?: SkillCatalog): ContextMenuDefinition[] {
+  const commands =
+    skills === undefined
+      ? commandsMenu({
+          icon: '/',
+          sources: [COMMAND_NODES],
+          resolve: resolveDemoCommand,
+        })
+      : skillsMenu({
+          catalog: skills,
+          icon: '/',
+          sources: [COMMAND_NODES],
+          resolveOther: resolveDemoCommand,
+        });
+
   return [
     mentionsMenu({
       icon: '@',
       sources: [
-        // A static array, exercising group drill-in with nested children.
         [
           {
             kind: 'group',
@@ -41,8 +74,6 @@ export function demoMenus(): ContextMenuDefinition[] {
           },
         ] satisfies ContextMenuNode[],
 
-        // A function source, showing that a level can be computed per query. A real
-        // host would hit a database or a filesystem here.
         ({ query }) => {
           if (query === '') return [];
           return [
@@ -58,8 +89,6 @@ export function demoMenus(): ContextMenuDefinition[] {
         },
       ],
       resolve: async ({ ref }) => {
-        // A mention that resolves to a context block rather than staying inline: the
-        // model gets the content, and the message stays readable.
         if (ref.path[0] === 'docs') {
           return {
             effect: 'context',
@@ -71,54 +100,9 @@ export function demoMenus(): ContextMenuDefinition[] {
       },
     }),
 
-    commandsMenu({
-      icon: '/',
-      sources: [
-        [
-          {
-            kind: 'item',
-            id: 'review',
-            label: 'review',
-            hint: 'Review the current changes',
-          },
-          {
-            kind: 'item',
-            id: 'explain',
-            label: 'explain',
-            hint: 'Explain what is going on',
-          },
-          {
-            kind: 'item',
-            id: 'plan',
-            label: 'plan',
-            hint: 'Switch to plan mode and propose a plan',
-          },
-        ] satisfies ContextMenuNode[],
-      ],
-      resolve: async ({ ref, text }) => {
-        if (ref.id === 'plan') {
-          // A command that asks for a mode. It is still subject to pinning: the
-          // request applies to this turn, and cannot retarget one already running.
-          //
-          // `token` is optional on a ref, so removing it from the text is
-          // conditional; a client that sent no token leaves the message as typed.
-          return {
-            effect: 'command',
-            mode: 'plan',
-            replaceText: ref.token === undefined ? text : text.replace(ref.token, '').trim(),
-            prompt: 'Propose a plan before making any changes.',
-          };
-        }
-
-        return {
-          effect: 'prompt',
-          text: `The user invoked the ${ref.id} command.`,
-        };
-      },
-    }),
+    commands,
 
     {
-      // A third trigger, registered with no preset and no composer change.
       id: 'labels',
       trigger: '#',
       title: 'Labels',
@@ -134,4 +118,26 @@ export function demoMenus(): ContextMenuDefinition[] {
       ] satisfies ContextMenuNode[],
     },
   ];
+}
+
+async function resolveDemoCommand({
+  ref,
+  text,
+}: {
+  ref: { id: string; token?: string | undefined };
+  text: string;
+}) {
+  if (ref.id === 'plan') {
+    return {
+      effect: 'command' as const,
+      mode: 'plan' as const,
+      replaceText: ref.token === undefined ? text : text.replace(ref.token, '').trim(),
+      prompt: 'Propose a plan before making any changes.',
+    };
+  }
+
+  return {
+    effect: 'prompt' as const,
+    text: `The user invoked the ${ref.id} command.`,
+  };
 }

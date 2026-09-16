@@ -18,6 +18,7 @@ export * from './openai-client.js';
 export * from './prompts.js';
 export * from './session-record.js';
 export * from './settings-store.js';
+export * from './skills/index.js';
 export * from './stores.js';
 export * from './tools.js';
 export * from './turn-loop.js';

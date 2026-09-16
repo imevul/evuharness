@@ -1,6 +1,11 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { createHarness, FakeProvider } from '@evu/harness-core';
+import { fileURLToPath } from 'node:url';
+import {
+  createFilesystemSkillCatalog,
+  createHarness,
+  FakeProvider,
+} from '@evu/harness-core';
 import { createHarnessRouter } from '@evu/harness-server';
 import {
   openDatabase,
@@ -15,6 +20,8 @@ import { demoAuth } from './auth.js';
 import { loadConfig } from './config.js';
 import { demoMenus } from './demo-menus.js';
 import { demoTools } from './demo-tools.js';
+
+const demoSkillsRoot = resolve(fileURLToPath(new URL('../skills', import.meta.url)));
 
 /**
  * The demo API.
@@ -37,13 +44,16 @@ async function main(): Promise<void> {
   // one without re-plumbing.
   const db = openDatabase({ path: config.databasePath });
 
+  const skills = createFilesystemSkillCatalog({ roots: [demoSkillsRoot] });
+
   const harness = createHarness({
     store: new SqliteSessionStore({ db }),
     grants: new SqliteGrantStore({ db }),
     settings: new SqliteSettingsStore({ db }),
     ...(config.fakeProvider ? { provider: new FakeProvider() } : {}),
     tools: demoTools(),
-    contextMenus: demoMenus(),
+    skills,
+    contextMenus: demoMenus(skills),
     providers: [
       {
         id: 'local',

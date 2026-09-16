@@ -36,6 +36,7 @@ import {
   titleFromMessage,
 } from './session-record.js';
 import type { StoredProviderProfile } from './settings-store.js';
+import { formatSkillInjection, type SkillCatalog } from './skills/index.js';
 import type { SessionStore } from './stores.js';
 import type { ToolHandler, ToolRegistry } from './tools.js';
 import { wrapUntrustedToolResult } from './untrusted.js';
@@ -98,6 +99,8 @@ export interface TurnControllerDeps {
    * `requires_approval`.
    */
   toolApprovalRule(name: string): Promise<'always_allow' | 'requires_approval'>;
+  /** Host skill catalog; required for `load_skill` mid-turn injection. */
+  skills?: SkillCatalog;
   now: () => string;
 }
 
@@ -393,7 +396,7 @@ async function* executeTurn(
 
   yield { event: 'status', sessionId, phase: 'started' };
 
-  const promptExtra = resolved.promptExtra;
+  let promptExtra = resolved.promptExtra;
   const maxToolRounds = await deps.maxToolRounds();
   const pinnedTools = deps.tools.specsForMode(pin.toolNames);
   const model = request.provider?.model ?? profile.model;
@@ -546,6 +549,41 @@ async function* executeTurn(
             break;
           }
           record = askOutcome.record;
+          continue;
+        }
+
+
+        if (call.name === BUILTIN_TOOL_NAMES.loadSkill) {
+          const loaded = await runLoadSkill(deps, pin, call);
+          if (loaded.injection !== '') {
+            // Accumulate for every later provider round in this turn. composeThread
+            // merges into the leading system message — never a mid-thread system role.
+            promptExtra = joinExtra(promptExtra, loaded.injection);
+          }
+          turnTools.push(loaded.event);
+          yield {
+            event: 'tool',
+            name: loaded.event.name,
+            arguments: loaded.event.arguments,
+            result: loaded.event.result,
+            ...(loaded.event.denied === undefined ? {} : { denied: loaded.event.denied }),
+          };
+          const latestAfterSkill = await deps.store.get(sessionId);
+          if (latestAfterSkill === null) {
+            throw new Error(`Unknown session: ${sessionId}`);
+          }
+          record = await persist(deps, sessionId, {
+            messages: [...latestAfterSkill.messages, loaded.message],
+            transcript: upsertAssistantRow(latestAfterSkill.transcript, {
+              kind: 'assistant',
+              text: content,
+              tools: [...turnTools],
+              ...(reasoning === '' ? {} : { reasoning }),
+              partial: true,
+              createdAt: deps.now(),
+            }),
+            usage,
+          });
           continue;
         }
 
@@ -1531,6 +1569,61 @@ async function invokeTool(
     }
     return `Tool failed: ${error instanceof Error ? error.message : String(error)}`;
   }
+}
+
+
+async function runLoadSkill(
+  deps: TurnControllerDeps,
+  pin: TurnPin,
+  call: { id: string; name: string; arguments: Record<string, unknown> },
+): Promise<{ event: ToolEvent; message: ChatMessage; injection: string }> {
+  const args =
+    call.arguments !== null && typeof call.arguments === 'object' && !Array.isArray(call.arguments)
+      ? call.arguments
+      : {};
+  const requested = typeof args.name === 'string' ? args.name.trim() : '';
+
+  let result: string;
+  let denied = false;
+  let injection = '';
+
+  if (!pin.toolNames.has(BUILTIN_TOOL_NAMES.loadSkill)) {
+    result = `Tool '${BUILTIN_TOOL_NAMES.loadSkill}' is not available in this mode.`;
+    denied = true;
+  } else if (deps.skills === undefined) {
+    result = `Tool '${BUILTIN_TOOL_NAMES.loadSkill}' was denied: no skill catalog is configured.`;
+    denied = true;
+  } else if (requested === '') {
+    result = `Tool '${BUILTIN_TOOL_NAMES.loadSkill}' was denied: 'name' is required.`;
+    denied = true;
+  } else {
+    const skill = await deps.skills.get(requested);
+    if (skill === null) {
+      result = `Unknown skill '${requested}'.`;
+      denied = true;
+    } else {
+      injection = formatSkillInjection(skill);
+      result = `Loaded skill '${skill.name}'.`;
+    }
+  }
+
+  const event: ToolEvent = {
+    name: BUILTIN_TOOL_NAMES.loadSkill,
+    arguments: args,
+    result,
+    ...(denied ? { denied: true } : {}),
+  };
+
+  return {
+    event,
+    injection,
+    message: {
+      role: 'tool',
+      content: wrapUntrustedToolResult(BUILTIN_TOOL_NAMES.loadSkill, result),
+      name: BUILTIN_TOOL_NAMES.loadSkill,
+      toolCallId: call.id,
+    },
+  };
 }
 
 async function resolveUserTurns(
