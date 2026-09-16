@@ -74,11 +74,12 @@ describe('CachedSessionStore', () => {
     gets = 0;
     await cache.upsert(record('c'));
     expect(cache.cacheSize).toBe(2);
-    await cache.get('b');
-    expect(gets).toBe(1);
     gets = 0;
-    await cache.get('a');
+    await cache.get('a'); // still cached
     expect(gets).toBe(0);
+    gets = 0;
+    await cache.get('b'); // evicted earlier → inner load
+    expect(gets).toBe(1);
   });
 
   it('does not serve a durable row after delete', async () => {

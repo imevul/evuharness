@@ -3,6 +3,7 @@ import {
   type Harness,
   setSessionMode,
   setSessionProvider,
+  withSessionLock,
 } from '@evu/harness-core';
 import {
   AskUserResponseRequestSchema,
@@ -168,13 +169,17 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
     }
 
     const id = c.req.param('id');
-    const record = await harness.store.get(id);
-    if (record === null) {
+    const session = await withSessionLock(harness.store, id, async () => {
+      const record = await harness.store.get(id);
+      if (record === null) {
+        return null;
+      }
+      await harness.store.upsert(setSessionMode(record, parsed.data.mode, 'explicit-set-mode'));
+      return harness.getSession(id);
+    });
+    if (session === null) {
       return c.json({ error: 'not_found' }, 404);
     }
-
-    await harness.store.upsert(setSessionMode(record, parsed.data.mode, 'explicit-set-mode'));
-    const session = await harness.getSession(id);
     return c.json(session);
   });
 
@@ -196,11 +201,6 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
     }
 
     const id = c.req.param('id');
-    const record = await harness.store.get(id);
-    if (record === null) {
-      return c.json({ error: 'not_found' }, 404);
-    }
-
     const override = parsed.data.provider;
     if (override?.providerId !== undefined) {
       const profile = await harness.getStoredProvider(override.providerId);
@@ -212,8 +212,17 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
       }
     }
 
-    await harness.store.upsert(setSessionProvider(record, override));
-    const session = await harness.getSession(id);
+    const session = await withSessionLock(harness.store, id, async () => {
+      const record = await harness.store.get(id);
+      if (record === null) {
+        return null;
+      }
+      await harness.store.upsert(setSessionProvider(record, override));
+      return harness.getSession(id);
+    });
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
     return c.json(session);
   });
 

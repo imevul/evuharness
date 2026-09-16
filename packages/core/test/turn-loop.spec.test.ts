@@ -1846,6 +1846,7 @@ describe('turn loop: provider overrides', () => {
     ]);
     const harness = createHarness({
       store,
+      cache: false,
       provider,
       providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
     });
