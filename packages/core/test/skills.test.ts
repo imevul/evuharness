@@ -120,6 +120,8 @@ describe('skills menu and prompt catalog', () => {
     expect(await harness.listSkills()).toEqual([
       { id: 'review', name: 'review', description: 'Review the current changes carefully.' },
     ]);
-    expect(harness.toolCatalog('ask').tools.some((tool) => tool.name === 'load_skill')).toBe(true);
+    expect(
+      (await harness.toolCatalog('ask')).tools.some((tool) => tool.name === 'load_skill'),
+    ).toBe(true);
   });
 });
