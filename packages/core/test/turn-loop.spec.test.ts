@@ -1723,7 +1723,9 @@ describe('turn loop: settings approval policy', () => {
     const session = await harness.createSession({ mode: 'agent' });
     const events = await collect(harness, session.id, 'write', 'agent');
     expect(events.some((event) => event.event === 'tool_approval_required')).toBe(false);
-    expect(events.some((event) => event.event === 'tool' && event.name === 'write_note')).toBe(true);
+    expect(events.some((event) => event.event === 'tool' && event.name === 'write_note')).toBe(
+      true,
+    );
     expect(events.at(-1)?.event).toBe('done');
   });
 });

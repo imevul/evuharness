@@ -245,7 +245,12 @@ export function createHarness(config: HarnessConfig = {}): Harness {
   }
 
   function builtinNames(): Set<string> {
-    return new Set(tools.specs().filter((spec) => spec.builtin).map((spec) => spec.name));
+    return new Set(
+      tools
+        .specs()
+        .filter((spec) => spec.builtin)
+        .map((spec) => spec.name),
+    );
   }
 
   function approvalsFor(stored: Awaited<ReturnType<typeof loadStored>>) {
