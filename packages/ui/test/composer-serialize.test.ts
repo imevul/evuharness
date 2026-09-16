@@ -1,16 +1,18 @@
 import {
+  type ComposerChipRef,
+  type ComposerValue,
   createChipElement,
   deleteChipBeforeCaret,
   mergeComposerRefs,
   paintComposer,
   serializeComposer,
   toWireRefs,
-  type ComposerChipRef,
-  type ComposerValue,
 } from '@evu/harness-ui';
 import { describe, expect, it } from 'vitest';
 
-function ref(partial: Partial<ComposerChipRef> & Pick<ComposerChipRef, 'id' | 'label'>): ComposerChipRef {
+function ref(
+  partial: Partial<ComposerChipRef> & Pick<ComposerChipRef, 'id' | 'label'>,
+): ComposerChipRef {
   return {
     menu: 'mentions',
     path: ['service'],

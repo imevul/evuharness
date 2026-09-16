@@ -35,10 +35,7 @@ export function toWireRefs(refs: readonly ComposerChipRef[]): ContextRef[] {
 }
 
 export function isChipElement(node: Node): node is HTMLElement {
-  return (
-    node.nodeType === Node.ELEMENT_NODE &&
-    (node as HTMLElement).dataset.harness === 'chip'
-  );
+  return node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.harness === 'chip';
 }
 
 /** Build an atomic chip node. `contenteditable=false` makes backspace delete it whole. */
@@ -125,10 +122,7 @@ interface WalkCaret {
  * Chip elements contribute their `data-token` (not the visible label) so the
  * model-facing string stays byte-stable. Soft line breaks become `\n`.
  */
-export function serializeComposer(
-  root: HTMLElement,
-  caret?: WalkCaret | null,
-): ComposerValue {
+export function serializeComposer(root: HTMLElement, caret?: WalkCaret | null): ComposerValue {
   let text = '';
   let caretIndex = 0;
   let caretSet = false;
@@ -230,11 +224,16 @@ export function paintComposer(root: HTMLElement, value: ComposerValue): void {
   const doc = root.ownerDocument;
   root.replaceChildren();
 
-  const chips = value.refs.filter((ref) => ref.asChip && ref.token !== undefined && ref.token !== '');
+  const chips = value.refs.filter(
+    (ref) => ref.asChip && ref.token !== undefined && ref.token !== '',
+  );
   let cursor = 0;
 
   for (const ref of chips) {
-    const token = ref.token!;
+    const token = ref.token;
+    if (token === undefined || token === '') {
+      continue;
+    }
     const index = value.text.indexOf(token, cursor);
     if (index === -1) {
       continue;

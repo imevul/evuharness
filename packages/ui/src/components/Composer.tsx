@@ -1,12 +1,7 @@
 import type { ChatModeId, ContextMenuDescriptor, ContextRef } from '@evu/harness-protocol';
+import { type KeyboardEvent, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
-  type KeyboardEvent,
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
-import {
+  type ComposerValue,
   deleteChipAfterCaret,
   deleteChipBeforeCaret,
   mergeComposerRefs,
@@ -15,12 +10,8 @@ import {
   serializeComposer,
   setComposerCaret,
   toWireRefs,
-  type ComposerValue,
 } from '../composer/serialize.js';
-import {
-  type ContextMenuFetcher,
-  useContextMenu,
-} from '../hooks/use-context-menu.js';
+import { type ContextMenuFetcher, useContextMenu } from '../hooks/use-context-menu.js';
 import { ContextMenuPopup } from './ContextMenuPopup.js';
 
 export interface ComposerProps {
@@ -229,6 +220,8 @@ export function Composer(props: ComposerProps) {
     <div className={className} data-harness="composer">
       <ContextMenuPopup state={menu} />
 
+      {/* Contenteditable is required so chips can sit inline; a textarea cannot. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: chips need a contenteditable surface */}
       <div
         ref={editorRef}
         data-harness="composer-input"
@@ -238,6 +231,7 @@ export function Composer(props: ComposerProps) {
         aria-multiline="true"
         aria-label={placeholder}
         aria-disabled={disabled || undefined}
+        tabIndex={disabled ? -1 : 0}
         contentEditable={!disabled}
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
