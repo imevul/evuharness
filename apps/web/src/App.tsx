@@ -159,9 +159,7 @@ export function App() {
               pending={session.pending}
               workspaceScoped={session.session?.workspaceId !== undefined}
               onToolDecision={(approvalId, decision) => {
-                if (activeId !== null) {
-                  void client.decideToolApproval(activeId, approvalId, { decision });
-                }
+                void session.decideToolApproval(approvalId, decision);
               }}
               onPlanDecision={(approve) => {
                 if (activeId === null) return;

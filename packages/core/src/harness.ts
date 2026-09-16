@@ -1,4 +1,5 @@
 import type {
+  ApprovalDecision,
   ChatModeId,
   ChatRequest,
   ConnectionTestResult,
@@ -18,6 +19,7 @@ import type {
 import type { ContextMenuDefinition } from './context-menus/index.js';
 import { ContextMenuRegistry } from './context-menus/index.js';
 import type { ProviderAdapter } from './fake-provider.js';
+import { GateWaiterRegistry } from './gate-waiters.js';
 import type { GrantStore } from './grants.js';
 import { createTurnPin, setSessionMode, type TurnPin } from './mode-pinning.js';
 import { resolveContextWindow } from './model-catalog.js';
@@ -151,6 +153,11 @@ export interface Harness {
 
   runTurn(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<StreamEvent>;
   cancel(sessionId: string, reason?: 'operator' | 'follow_up'): Promise<void>;
+  decideToolApproval(
+    sessionId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void>;
 }
 
 function defaultIdFactory(): () => string {
@@ -303,6 +310,8 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     tools,
     contextMenus,
     provider,
+    gates: new GateWaiterRegistry(),
+    newId,
     getStoredProvider,
     pinTurn,
     createSession,
@@ -464,6 +473,8 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     runTurn: (request, signal) => turns.runTurn(request, signal),
     cancel: (sessionId, reason) =>
       reason === undefined ? turns.cancel(sessionId) : turns.cancel(sessionId, reason),
+    decideToolApproval: (sessionId, approvalId, decision) =>
+      turns.decideToolApproval(sessionId, approvalId, decision),
   };
 }
 

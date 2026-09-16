@@ -8,7 +8,13 @@
  * `SPEC.md` is the normative description of everything below.
  */
 
-import { createHarness, FakeProvider, type ProviderEvent } from '@evu/harness-core';
+import {
+  createHarness,
+  FakeProvider,
+  InMemorySessionStore,
+  type ProviderEvent,
+  type SessionStore,
+} from '@evu/harness-core';
 import { isTerminalEvent, type StreamEvent } from '@evu/harness-protocol';
 import { describe, expect, it } from 'vitest';
 
@@ -65,6 +71,64 @@ function toolEvents(id: string, name: string, args: Record<string, unknown> = {}
       message: { role: 'assistant', content: '', toolCalls: [{ id, name, arguments: args }] },
     },
   ];
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('waitFor timed out');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/**
+ * Run a turn until the first tool-approval gate opens, then hand control back.
+ *
+ * `finish` resumes draining the same generator after the caller decides.
+ */
+async function runUntilApproval(
+  harness: ReturnType<typeof createHarness>,
+  sessionId: string,
+  mode: 'ask' | 'plan' | 'agent' = 'agent',
+): Promise<{
+  approval: Extract<StreamEvent, { event: 'tool_approval_required' }>;
+  events: StreamEvent[];
+  finish: () => Promise<StreamEvent[]>;
+}> {
+  const events: StreamEvent[] = [];
+  const iterator = harness.runTurn({
+    sessionId,
+    mode,
+    messages: [{ text: 'hi' }],
+  })[Symbol.asyncIterator]();
+
+  let approval: Extract<StreamEvent, { event: 'tool_approval_required' }> | null = null;
+  while (approval === null) {
+    const next = await iterator.next();
+    if (next.done) {
+      throw new Error('Turn ended before an approval gate opened');
+    }
+    events.push(next.value);
+    if (next.value.event === 'tool_approval_required') {
+      approval = next.value;
+    }
+  }
+
+  return {
+    approval,
+    events,
+    finish: async () => {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) {
+          return events;
+        }
+        events.push(next.value);
+      }
+    },
+  };
 }
 
 describe('turn loop: streaming', () => {
@@ -549,13 +613,96 @@ describe('turn loop: prompt and skills', () => {
 });
 
 describe('turn loop: session persistence', () => {
-  it.skip('keeps the model thread and the UI transcript in step', () => {});
+  it('keeps the model thread and the UI transcript in step', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: [
+            { kind: 'delta', text: 'Hel' },
+            { kind: 'delta', text: 'lo' },
+            { kind: 'message', message: { role: 'assistant', content: 'Hello' } },
+          ],
+        },
+      ]),
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+    await collect(harness, session.id, 'hi there');
+    const stored = await harness.store.get(session.id);
 
-  it.skip('titles a session from its first user message', () => {});
+    const userMessages = stored?.messages.filter((message) => message.role === 'user') ?? [];
+    const assistantMessages =
+      stored?.messages.filter((message) => message.role === 'assistant') ?? [];
+    const userRows = stored?.transcript.filter((row) => row.kind === 'user') ?? [];
+    const assistantRows = stored?.transcript.filter((row) => row.kind === 'assistant') ?? [];
+
+    expect(userMessages).toHaveLength(1);
+    expect(assistantMessages).toHaveLength(1);
+    expect(userRows).toHaveLength(1);
+    expect(assistantRows).toHaveLength(1);
+    expect(userMessages[0]?.content).toBe(userRows[0]?.text);
+    expect(assistantMessages[0]?.content).toBe(assistantRows[0]?.text);
+    expect(assistantRows[0]).not.toMatchObject({ partial: true });
+  });
+
+  it('titles a session from its first user message', async () => {
+    const harness = runtime(new FakeProvider([{ events: textEvents('ok') }]));
+    const session = await harness.createSession({ mode: 'ask' });
+    expect(session.title).toBe('New chat');
+
+    const events = await collect(harness, session.id, 'Restart the api\nand then check logs');
+
+    expect(events.at(-1)).toMatchObject({ event: 'done', title: 'Restart the api' });
+    expect(await harness.getSession(session.id)).toMatchObject({ title: 'Restart the api' });
+    expect(await harness.listSessions()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: session.id, title: 'Restart the api' }),
+      ]),
+    );
+
+    // A later turn must not overwrite a title that has already been derived.
+    await collect(harness, session.id, 'something else entirely');
+    expect((await harness.getSession(session.id))?.title).toBe('Restart the api');
+  });
 
   it.skip('serializes concurrent turns on one session', () => {});
 
-  it.skip('does not persist on every delta', () => {});
+  it('does not persist on every delta', async () => {
+    const base = new InMemorySessionStore();
+    let upserts = 0;
+    const store: SessionStore = {
+      get: (id) => base.get(id),
+      upsert: async (record) => {
+        upserts += 1;
+        await base.upsert(record);
+      },
+      delete: (id) => base.delete(id),
+      listSummaries: (options) => base.listSummaries(options),
+    };
+    const deltaCount = 5;
+    const harness = runtime(
+      new FakeProvider([
+        {
+          events: [
+            ...Array.from({ length: deltaCount }, (_, index) => ({
+              kind: 'delta' as const,
+              text: String(index),
+            })),
+            { kind: 'usage', promptTokens: 2, completionTokens: 1 },
+            { kind: 'message', message: { role: 'assistant', content: '01234' } },
+          ],
+        },
+      ]),
+      { store },
+    );
+    const session = await harness.createSession({ mode: 'ask' });
+    const beforeTurn = upserts;
+    await collect(harness, session.id);
+
+    // Mode pin + user/title persist + terminal assistant. Deltas must not each write.
+    const duringTurn = upserts - beforeTurn;
+    expect(duringTurn).toBe(3);
+    expect(duringTurn).toBeLessThan(deltaCount);
+  });
 });
 
 /**
