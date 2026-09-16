@@ -71,5 +71,46 @@ export function demoTools(): ToolDefinition[] {
         return `Deleted ${count} note(s).`;
       },
     },
+    {
+      name: 'ask_user',
+      description:
+        'Ask the person one or more structured questions and wait for their answer before continuing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          questions: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                prompt: { type: 'string' },
+                choices: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      label: { type: 'string' },
+                    },
+                    required: ['id', 'label'],
+                  },
+                },
+                allowMultiple: { type: 'boolean' },
+                allowFreeForm: { type: 'boolean' },
+              },
+              required: ['id', 'prompt'],
+            },
+          },
+        },
+        required: ['questions'],
+      },
+      // Runtime-owned gate tool: always allowlisted by mode policy, never causes
+      // a side effect on its own. The turn loop intercepts the call and suspends.
+      mutates: false,
+      approval: 'always_allow',
+      builtin: true,
+      handler: () => 'ask_user is handled by the turn loop; this handler should not run.',
+    },
   ];
 }

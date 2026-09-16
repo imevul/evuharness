@@ -1,5 +1,6 @@
 import { GateNotFoundError, type Harness, setSessionMode } from '@evu/harness-core';
 import {
+  AskUserResponseRequestSchema,
   CancelRequestSchema,
   ChatRequestSchema,
   ConnectionTestRequestSchema,
@@ -291,7 +292,35 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
   app.post('/sessions/:id/approve-plan', async (c) => notImplemented(c, CAPABILITIES.decide));
   app.post('/sessions/:id/discard-plan', async (c) => notImplemented(c, CAPABILITIES.decide));
   app.post('/sessions/:id/mode-switch', async (c) => notImplemented(c, CAPABILITIES.decide));
-  app.post('/sessions/:id/ask-user/:askId', async (c) => notImplemented(c, CAPABILITIES.decide));
+
+  app.post('/sessions/:id/ask-user/:askId', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.decide);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = AskUserResponseRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    const id = c.req.param('id');
+    const askId = c.req.param('askId');
+    const session = await harness.getSession(id);
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    try {
+      await harness.answerAskUser(id, askId, parsed.data.answers);
+      return c.body(null, 204);
+    } catch (error) {
+      if (error instanceof GateNotFoundError) {
+        return c.json({ error: 'not_found', detail: error.message }, 404);
+      }
+      return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
+    }
+  });
 
   // --- Settings, prompts, tools ---
 

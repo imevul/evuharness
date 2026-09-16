@@ -223,14 +223,12 @@ describe('chat', () => {
 });
 
 describe('gates', () => {
-  it.each([
-    '/sessions/s1/approve-plan',
-    '/sessions/s1/discard-plan',
-    '/sessions/s1/mode-switch',
-    '/sessions/s1/ask-user/a1',
-  ])('reports 501 for %s', async (path) => {
-    expect((await post(path, {})).status).toBe(501);
-  });
+  it.each(['/sessions/s1/approve-plan', '/sessions/s1/discard-plan', '/sessions/s1/mode-switch'])(
+    'reports 501 for %s',
+    async (path) => {
+      expect((await post(path, {})).status).toBe(501);
+    },
+  );
 
   it('validates an approval decision before refusing', async () => {
     expect((await post('/sessions/s1/tool-approvals/a1', { decision: 'maybe' })).status).toBe(400);
@@ -313,6 +311,24 @@ describe('gates', () => {
       const { done } = await reader.read();
       if (done) break;
     }
+  });
+
+  it('rejects an ask-user answer when nothing is pending', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider(),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+    });
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+    const response = await post(`/sessions/${created.id}/ask-user/missing`, {
+      answers: [{ questionId: 'q1', selected: ['a'] }],
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it('validates ask-user answers before looking up the gate', async () => {
+    expect((await post('/sessions/s1/ask-user/a1', { answers: [] })).status).toBe(400);
   });
 });
 

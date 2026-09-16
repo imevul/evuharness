@@ -1034,16 +1034,219 @@ describe('turn loop: plan gate', () => {
 });
 
 describe('turn loop: ask-user gate', () => {
-  it.skip('suspends the turn and emits ask_user_required', () => {});
+  const ASK = {
+    name: 'ask_user',
+    description: 'ask',
+    parameters: {},
+    mutates: false,
+    approval: 'always_allow' as const,
+    builtin: true,
+    handler: () => 'should not run',
+  };
 
-  it.skip('resumes with the answer available to the model', () => {});
+  const QUESTIONS = {
+    questions: [
+      {
+        id: 'q1',
+        prompt: 'Ship it?',
+        choices: [
+          { id: 'yes', label: 'Yes' },
+          { id: 'no', label: 'No' },
+        ],
+        allowMultiple: false,
+        allowFreeForm: true,
+      },
+    ],
+  };
 
-  it.skip('supports free-form answers as well as choices', () => {});
+  it('suspends the turn and emits ask_user_required', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'ask_user', QUESTIONS) },
+      { events: textEvents('thanks') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, ASK] });
+    const session = await harness.createSession({ mode: 'ask' });
 
-  it.skip('records the exchange as transcript rows, not as a tool result', () => {});
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+      }
+    })();
 
-  it.skip('rejects an answer for an ask that is no longer pending', () => {});
+    await waitFor(() => events.some((event) => event.event === 'ask_user_required'));
+    const gate = events.find((event) => event.event === 'ask_user_required');
+    expect(gate).toMatchObject({
+      event: 'ask_user_required',
+      sessionId: session.id,
+      questions: [expect.objectContaining({ id: 'q1', prompt: 'Ship it?' })],
+    });
+    expect(events.some((event) => event.event === 'done')).toBe(false);
+    expect((await harness.getSession(session.id))?.pending.askUser?.askId).toBe(
+      (gate as { askId: string }).askId,
+    );
+
+    await harness.answerAskUser(session.id, (gate as { askId: string }).askId, [
+      { questionId: 'q1', selected: ['yes'] },
+    ]);
+    await running;
+  });
+
+  it('resumes with the answer available to the model', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'ask_user', QUESTIONS) },
+      { events: textEvents('got it') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, ASK] });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'ask_user_required'));
+    const askId = (events.find((event) => event.event === 'ask_user_required') as { askId: string })
+      .askId;
+    await harness.answerAskUser(session.id, askId, [{ questionId: 'q1', selected: ['yes'] }]);
+    await running;
+
+    expect(events.at(-1)).toMatchObject({ event: 'done', content: 'got it' });
+    const modelThread = provider.calls[1]?.messages ?? [];
+    expect(
+      modelThread.some(
+        (message) =>
+          message.role === 'tool' && message.name === 'ask_user' && message.content.includes('Yes'),
+      ),
+    ).toBe(true);
+  });
+
+  it('supports free-form answers as well as choices', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'ask_user', QUESTIONS) },
+      { events: textEvents('noted') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, ASK] });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'ask_user_required'));
+    const askId = (events.find((event) => event.event === 'ask_user_required') as { askId: string })
+      .askId;
+    await harness.answerAskUser(session.id, askId, [
+      { questionId: 'q1', selected: ['no'], text: 'not yet — wait for review' },
+    ]);
+    await running;
+
+    const modelThread = provider.calls[1]?.messages ?? [];
+    const toolMessage = modelThread.find(
+      (message) => message.role === 'tool' && message.name === 'ask_user',
+    );
+    expect(toolMessage?.content).toContain('No');
+    expect(toolMessage?.content).toContain('not yet — wait for review');
+  });
+
+  it('records the exchange as transcript rows, not as a tool result', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'ask_user', QUESTIONS) },
+      { events: textEvents('done') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, ASK] });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'ask_user_required'));
+    const askId = (events.find((event) => event.event === 'ask_user_required') as { askId: string })
+      .askId;
+    await harness.answerAskUser(session.id, askId, [{ questionId: 'q1', selected: ['yes'] }]);
+    await running;
+
+    expect(events.some((event) => event.event === 'tool' && event.name === 'ask_user')).toBe(false);
+
+    const stored = await harness.store.get(session.id);
+    expect(
+      stored?.transcript.some((row) => row.kind === 'system' && row.text.includes('Ship it?')),
+    ).toBe(true);
+    expect(stored?.transcript.some((row) => row.kind === 'user' && row.text.includes('Yes'))).toBe(
+      true,
+    );
+    expect(
+      stored?.transcript.some(
+        (row) => row.kind === 'assistant' && row.tools?.some((tool) => tool.name === 'ask_user'),
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects an answer for an ask that is no longer pending', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'ask_user', QUESTIONS) },
+      { events: textEvents('done') },
+    ]);
+    const harness = runtime(provider, { tools: [ECHO, ASK] });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'ask',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => events.some((event) => event.event === 'ask_user_required'));
+    const askId = (events.find((event) => event.event === 'ask_user_required') as { askId: string })
+      .askId;
+    await harness.answerAskUser(session.id, askId, [{ questionId: 'q1', selected: ['yes'] }]);
+    await running;
+
+    await expect(
+      harness.answerAskUser(session.id, askId, [{ questionId: 'q1', selected: ['no'] }]),
+    ).rejects.toMatchObject({ name: 'GateNotFoundError' });
+  });
 });
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe('turn loop: mode switch gate', () => {
   it.skip('suspends the turn when the model requests a mode switch', () => {});
