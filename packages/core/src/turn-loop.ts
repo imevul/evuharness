@@ -1,8 +1,11 @@
 import type {
   ApprovalDecision,
+  AskUserAnswer,
+  AskUserQuestion,
   ChatMessage,
   ChatModeId,
   ChatRequest,
+  PendingAskUser,
   PendingToolApproval,
   Scope,
   StreamEvent,
@@ -10,6 +13,7 @@ import type {
   TranscriptRow,
   UserTurnInput,
 } from '@evu/harness-protocol';
+import { AskUserQuestionSchema, BUILTIN_TOOL_NAMES } from '@evu/harness-protocol';
 import type { ContextMenuRegistry } from './context-menus/index.js';
 import { abortError, isAbortError, type ProviderAdapter } from './fake-provider.js';
 import { GateCancelledError, GateNotFoundError, type GateWaiterRegistry } from './gate-waiters.js';
@@ -48,6 +52,13 @@ export interface TurnController {
     approvalId: string,
     decision: ApprovalDecision,
   ): Promise<void>;
+  /**
+   * Deliver answers to a suspended ask-user gate.
+   *
+   * Resolves the waiter so the turn resumes. Rejects when the ask is missing or
+   * no longer pending — a late POST must not invent an exchange.
+   */
+  answerAskUser(sessionId: string, askId: string, answers: AskUserAnswer[]): Promise<void>;
 }
 
 export interface TurnControllerDeps {
@@ -67,6 +78,7 @@ export interface TurnControllerDeps {
   }): Promise<{ id: string }>;
   setSessionMode(sessionId: string, mode: ChatModeId): Promise<void>;
   maxToolRounds(): Promise<number>;
+  askUserEnabled(): Promise<boolean>;
   now: () => string;
 }
 
@@ -134,6 +146,24 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
     }
     if (!deps.gates.resolve('tool_approval', approvalId, decision)) {
       throw new GateNotFoundError('tool_approval', approvalId);
+    }
+  }
+
+  async function answerAskUser(
+    sessionId: string,
+    askId: string,
+    answers: AskUserAnswer[],
+  ): Promise<void> {
+    const record = await deps.store.get(sessionId);
+    if (record === null) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    const pending = record.pending.askUser;
+    if (pending === null || pending.askId !== askId) {
+      throw new GateNotFoundError('ask_user', askId);
+    }
+    if (!deps.gates.resolve('ask_user', askId, answers)) {
+      throw new GateNotFoundError('ask_user', askId);
     }
   }
 
@@ -212,6 +242,7 @@ export function createTurnController(deps: TurnControllerDeps): TurnController {
     runTurn,
     cancel,
     decideToolApproval,
+    answerAskUser,
     isLive: (sessionId) => live.has(sessionId),
   };
 }
@@ -383,6 +414,30 @@ async function* executeTurn(
           break;
         }
 
+        if (call.name === BUILTIN_TOOL_NAMES.askUser) {
+          const askOutcome = yield* runAskUserGate(deps, {
+            sessionId,
+            pin,
+            call,
+            content,
+            reasoning,
+            turnTools,
+            usage,
+            signal: handle.controller.signal,
+          });
+          if (askOutcome.kind === 'cancelled') {
+            terminal = await finishCancelled(deps, sessionId, handle, {
+              content,
+              reasoning,
+              tools: turnTools,
+              usage,
+            });
+            break;
+          }
+          record = askOutcome.record;
+          continue;
+        }
+
         let executed: { event: ToolEvent; message: ChatMessage };
         try {
           const toolRun = executeTool(deps, pin, scope, call, handle.controller.signal);
@@ -442,7 +497,11 @@ async function* executeTurn(
       toolRounds += 1;
     }
   } catch (error) {
-    if (isAbortError(error) || handle.controller.signal.aborted) {
+    if (
+      isAbortError(error) ||
+      handle.controller.signal.aborted ||
+      error instanceof GateCancelledError
+    ) {
       terminal = await finishCancelled(deps, sessionId, handle, {
         content,
         reasoning,
@@ -544,6 +603,280 @@ type StreamOutcome =
       usage: { promptTokens: number; completionTokens: number } | null;
       message: string;
     };
+
+/**
+ * Suspend for an ask-user gate.
+ *
+ * The exchange is recorded as transcript rows (question as system, answer as
+ * user). The model still receives a tool-role message so the provider's tool-call
+ * protocol stays intact — but that message is not mirrored as a `tool` stream
+ * event or an assistant-row tool chip.
+ */
+async function* runAskUserGate(
+  deps: TurnControllerDeps,
+  input: {
+    sessionId: string;
+    pin: TurnPin;
+    call: { id: string; name: string; arguments: Record<string, unknown> };
+    content: string;
+    reasoning: string;
+    turnTools: ToolEvent[];
+    usage: SessionRecord['usage'];
+    signal: AbortSignal;
+  },
+): AsyncGenerator<
+  StreamEvent,
+  { kind: 'answered'; record: SessionRecord } | { kind: 'cancelled' }
+> {
+  const args =
+    input.call.arguments !== null &&
+    typeof input.call.arguments === 'object' &&
+    !Array.isArray(input.call.arguments)
+      ? input.call.arguments
+      : {};
+
+  if (!input.pin.toolNames.has(BUILTIN_TOOL_NAMES.askUser)) {
+    return yield* denyAskAsTool(
+      deps,
+      input,
+      `Tool '${BUILTIN_TOOL_NAMES.askUser}' is not available in this mode.`,
+    );
+  }
+  if (!deps.tools.has(BUILTIN_TOOL_NAMES.askUser)) {
+    return yield* denyAskAsTool(deps, input, `Unknown tool: ${BUILTIN_TOOL_NAMES.askUser}`);
+  }
+  if (!(await deps.askUserEnabled())) {
+    return yield* denyAskAsTool(
+      deps,
+      input,
+      `Tool '${BUILTIN_TOOL_NAMES.askUser}' was denied: ask-user is disabled.`,
+    );
+  }
+
+  const questions = parseAskUserQuestions(args);
+  if (questions === null) {
+    return yield* denyAskAsTool(
+      deps,
+      input,
+      `Tool '${BUILTIN_TOOL_NAMES.askUser}' was denied: questions must be a non-empty array.`,
+    );
+  }
+
+  const askId = deps.newId();
+  const pending: PendingAskUser = {
+    askId,
+    questions,
+    requestedAt: deps.now(),
+  };
+
+  const questionText = formatAskUserQuestions(questions);
+  const latestBefore = await deps.store.get(input.sessionId);
+  if (latestBefore === null) {
+    throw new Error(`Unknown session: ${input.sessionId}`);
+  }
+
+  await persist(deps, input.sessionId, {
+    transcript: [
+      ...upsertAssistantRow(latestBefore.transcript, {
+        kind: 'assistant',
+        text: input.content,
+        ...(input.turnTools.length === 0 ? {} : { tools: [...input.turnTools] }),
+        ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+        partial: true,
+        createdAt: deps.now(),
+      }),
+      { kind: 'system', text: questionText, createdAt: deps.now() },
+    ],
+    pending: {
+      ...latestBefore.pending,
+      askUser: pending,
+    },
+    usage: input.usage,
+  });
+
+  const waiter = deps.gates.open<AskUserAnswer[]>({
+    sessionId: input.sessionId,
+    kind: 'ask_user',
+    id: askId,
+  });
+
+  // Start waiting before yielding so a cancel that arrives while the consumer
+  // handles the event rejects a promise that already has a listener.
+  const waiting = waiter.wait(input.signal);
+
+  yield {
+    event: 'ask_user_required',
+    sessionId: input.sessionId,
+    askId: pending.askId,
+    questions: pending.questions,
+    requestedAt: pending.requestedAt,
+  };
+
+  let answers: AskUserAnswer[];
+  try {
+    answers = await waiting;
+  } catch (error) {
+    if (isAbortError(error) || input.signal.aborted || error instanceof GateCancelledError) {
+      return { kind: 'cancelled' };
+    }
+    throw error;
+  }
+
+  const answerText = formatAskUserAnswers(questions, answers);
+  const latest = await deps.store.get(input.sessionId);
+  if (latest === null) {
+    throw new Error(`Unknown session: ${input.sessionId}`);
+  }
+
+  // Tool-role content for the model thread only — not a transcript tool result.
+  const modelPayload = formatAskUserAnswersForModel(questions, answers);
+  const toolMessage: ChatMessage = {
+    role: 'tool',
+    content: wrapUntrustedToolResult(BUILTIN_TOOL_NAMES.askUser, modelPayload),
+    name: BUILTIN_TOOL_NAMES.askUser,
+    toolCallId: input.call.id,
+  };
+
+  const record = await persist(deps, input.sessionId, {
+    messages: [...latest.messages, toolMessage],
+    transcript: [...latest.transcript, { kind: 'user', text: answerText, createdAt: deps.now() }],
+    pending: {
+      ...latest.pending,
+      askUser: null,
+    },
+    usage: input.usage,
+  });
+
+  return { kind: 'answered', record };
+}
+
+async function* denyAskAsTool(
+  deps: TurnControllerDeps,
+  input: {
+    sessionId: string;
+    call: { id: string; name: string; arguments: Record<string, unknown> };
+    content: string;
+    reasoning: string;
+    turnTools: ToolEvent[];
+    usage: SessionRecord['usage'];
+  },
+  result: string,
+): AsyncGenerator<StreamEvent, { kind: 'answered'; record: SessionRecord }> {
+  const args =
+    input.call.arguments !== null &&
+    typeof input.call.arguments === 'object' &&
+    !Array.isArray(input.call.arguments)
+      ? input.call.arguments
+      : {};
+  const event: ToolEvent = {
+    name: BUILTIN_TOOL_NAMES.askUser,
+    arguments: args,
+    result,
+    denied: true,
+  };
+  input.turnTools.push(event);
+  yield {
+    event: 'tool',
+    name: event.name,
+    arguments: event.arguments,
+    result: event.result,
+    denied: true,
+  };
+
+  const latest = await deps.store.get(input.sessionId);
+  if (latest === null) {
+    throw new Error(`Unknown session: ${input.sessionId}`);
+  }
+  const record = await persist(deps, input.sessionId, {
+    messages: [
+      ...latest.messages,
+      {
+        role: 'tool',
+        content: wrapUntrustedToolResult(BUILTIN_TOOL_NAMES.askUser, result),
+        name: BUILTIN_TOOL_NAMES.askUser,
+        toolCallId: input.call.id,
+      },
+    ],
+    transcript: upsertAssistantRow(latest.transcript, {
+      kind: 'assistant',
+      text: input.content,
+      tools: [...input.turnTools],
+      ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
+      partial: true,
+      createdAt: deps.now(),
+    }),
+    usage: input.usage,
+  });
+  return { kind: 'answered', record };
+}
+
+function parseAskUserQuestions(args: Record<string, unknown>): AskUserQuestion[] | null {
+  const raw = args.questions;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return null;
+  }
+  const questions: AskUserQuestion[] = [];
+  for (const entry of raw) {
+    const parsed = AskUserQuestionSchema.safeParse(entry);
+    if (!parsed.success) {
+      return null;
+    }
+    questions.push(parsed.data);
+  }
+  return questions;
+}
+
+function formatAskUserQuestions(questions: AskUserQuestion[]): string {
+  if (questions.length === 1) {
+    const question = questions[0];
+    if (question === undefined) {
+      return 'Question:';
+    }
+    const choices =
+      question.choices.length === 0
+        ? ''
+        : `\nChoices: ${question.choices.map((choice) => choice.label).join(', ')}`;
+    return `Question: ${question.prompt}${choices}`;
+  }
+  return [
+    'Questions:',
+    ...questions.map((question, index) => {
+      const choices =
+        question.choices.length === 0
+          ? ''
+          : ` [${question.choices.map((choice) => choice.label).join(', ')}]`;
+      return `${index + 1}. ${question.prompt}${choices}`;
+    }),
+  ].join('\n');
+}
+
+function formatAskUserAnswers(questions: AskUserQuestion[], answers: AskUserAnswer[]): string {
+  const byId = new Map(answers.map((answer) => [answer.questionId, answer]));
+  const lines = questions.map((question) => {
+    const answer = byId.get(question.id);
+    const parts: string[] = [];
+    if (answer !== undefined) {
+      for (const selectedId of answer.selected) {
+        const choice = question.choices.find((entry) => entry.id === selectedId);
+        parts.push(choice?.label ?? selectedId);
+      }
+      if (answer.text !== undefined && answer.text.trim() !== '') {
+        parts.push(answer.text.trim());
+      }
+    }
+    return parts.length === 0
+      ? `${question.prompt}: (no answer)`
+      : `${question.prompt}: ${parts.join('; ')}`;
+  });
+  return lines.join('\n');
+}
+
+function formatAskUserAnswersForModel(
+  questions: AskUserQuestion[],
+  answers: AskUserAnswer[],
+): string {
+  return formatAskUserAnswers(questions, answers);
+}
 
 async function* executeTool(
   deps: TurnControllerDeps,

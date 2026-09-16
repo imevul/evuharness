@@ -1,5 +1,6 @@
 import type {
   ApprovalDecision,
+  AskUserAnswer,
   ChatModeId,
   ChatRequest,
   ConnectionTestResult,
@@ -158,6 +159,7 @@ export interface Harness {
     approvalId: string,
     decision: ApprovalDecision,
   ): Promise<void>;
+  answerAskUser(sessionId: string, askId: string, answers: AskUserAnswer[]): Promise<void>;
 }
 
 function defaultIdFactory(): () => string {
@@ -320,6 +322,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       await store.upsert(setSessionMode(record, mode, 'send-time-pin', now()));
     },
     maxToolRounds: async () => (await loadStored()).policies.maxToolRounds,
+    askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
     now,
   });
 
@@ -475,6 +478,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       reason === undefined ? turns.cancel(sessionId) : turns.cancel(sessionId, reason),
     decideToolApproval: (sessionId, approvalId, decision) =>
       turns.decideToolApproval(sessionId, approvalId, decision),
+    answerAskUser: (sessionId, askId, answers) => turns.answerAskUser(sessionId, askId, answers),
   };
 }
 
