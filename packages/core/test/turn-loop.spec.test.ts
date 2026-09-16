@@ -475,18 +475,52 @@ describe('turn loop: cancellation', () => {
   });
 
   it('does not leave an orphaned approval waiter that later executes a tool', async () => {
+    let executed = false;
     const provider = new FakeProvider([
       { events: toolEvents('c1', 'write_note', { key: 'k', body: 'v' }) },
       { events: textEvents('blocked') },
     ]);
-    const harness = runtime(provider, { tools: [ECHO, WRITE] });
+    const harness = runtime(provider, {
+      tools: [
+        ECHO,
+        {
+          ...WRITE,
+          handler: () => {
+            executed = true;
+            return 'written';
+          },
+        },
+      ],
+    });
     const session = await harness.createSession({ mode: 'agent' });
-    const events = await collect(harness, session.id, 'hi', 'agent');
-    const detail = await harness.getSession(session.id);
 
-    expect(events.find((event) => event.event === 'tool')).toMatchObject({ denied: true });
-    expect(events.some((event) => event.event === 'tool_approval_required')).toBe(false);
-    expect(detail?.pending.toolApprovals).toEqual([]);
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'agent',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+        if (event.event === 'tool_approval_required') {
+          await harness.cancel(session.id, 'operator');
+        }
+      }
+    })();
+    await running;
+
+    const approval = events.find((event) => event.event === 'tool_approval_required');
+    expect(approval).toMatchObject({ event: 'tool_approval_required' });
+    expect(events.at(-1)).toMatchObject({ event: 'cancelled' });
+    expect(executed).toBe(false);
+    expect((await harness.getSession(session.id))?.pending.toolApprovals).toEqual([]);
+
+    if (approval?.event === 'tool_approval_required') {
+      await expect(
+        harness.decideToolApproval(session.id, approval.approvalId, 'allow_once'),
+      ).rejects.toThrow(/No open gate/);
+    }
+    expect(executed).toBe(false);
   });
 
   it('aborts an in-flight tool handler via its signal', async () => {
@@ -549,21 +583,245 @@ describe('turn loop: follow-up queue', () => {
 });
 
 describe('turn loop: tool approval gate', () => {
-  it.skip('suspends the turn instead of executing a gated tool', () => {});
+  it('suspends the turn instead of executing a gated tool', async () => {
+    let executed = false;
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'x' }) },
+        { events: textEvents('done') },
+      ]),
+      {
+        tools: [
+          ECHO,
+          {
+            ...WRITE,
+            handler: () => {
+              executed = true;
+              return 'written';
+            },
+          },
+        ],
+      },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
 
-  it.skip('emits tool_approval_required carrying the argument digest', () => {});
+    expect(executed).toBe(false);
+    expect((await harness.getSession(session.id))?.pending.toolApprovals).toHaveLength(1);
+    expect(approval.tool).toBe('write_note');
 
-  it.skip('resumes and executes the tool after allow_once', () => {});
+    await harness.decideToolApproval(session.id, approval.approvalId, 'deny');
+    await finish();
+    expect(executed).toBe(false);
+  });
 
-  it.skip('resumes under the original pinned mode after an approval wait', () => {});
+  it('emits tool_approval_required carrying the argument digest', async () => {
+    const { digestToolCall } = await import('@evu/harness-core');
+    const args = { key: 'k', body: 'v' };
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', args) },
+        { events: textEvents('done') },
+      ]),
+      { tools: [ECHO, WRITE] },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
+    expect(approval).toMatchObject({
+      event: 'tool_approval_required',
+      tool: 'write_note',
+      arguments: args,
+      digest: digestToolCall('write_note', args),
+      sessionId: session.id,
+    });
+    await harness.decideToolApproval(session.id, approval.approvalId, 'deny');
+    await finish();
+  });
 
-  it.skip('reports a refusal to the model after deny', () => {});
+  it('resumes and executes the tool after allow_once', async () => {
+    let executed = false;
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'x' }) },
+        { events: textEvents('done') },
+      ]),
+      {
+        tools: [
+          ECHO,
+          {
+            ...WRITE,
+            handler: () => {
+              executed = true;
+              return 'written';
+            },
+          },
+        ],
+      },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
+    expect(executed).toBe(false);
+    await harness.decideToolApproval(session.id, approval.approvalId, 'allow_once');
+    const events = await finish();
+    expect(executed).toBe(true);
+    expect(events.find((event) => event.event === 'tool')).toMatchObject({
+      name: 'write_note',
+      result: 'written',
+    });
+    expect(events.at(-1)).toMatchObject({ event: 'done', content: 'done' });
+  });
 
-  it.skip('does not re-prompt for a tool already granted for the session', () => {});
+  it('resumes under the original pinned mode after an approval wait', async () => {
+    const { setSessionMode } = await import('@evu/harness-core');
+    const seenModes: string[] = [];
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'x' }) },
+        { events: textEvents('done') },
+      ]),
+      {
+        tools: [
+          ECHO,
+          {
+            ...WRITE,
+            handler: (_args, ctx) => {
+              seenModes.push(ctx.mode);
+              return 'written';
+            },
+          },
+        ],
+      },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
 
-  it.skip('re-prompts when the same tool is called with different arguments', () => {});
+    const stored = await harness.store.get(session.id);
+    expect(stored).not.toBeNull();
+    await harness.store.upsert(setSessionMode(stored!, 'ask', 'explicit-set-mode'));
+    expect((await harness.getSession(session.id))?.mode).toBe('ask');
 
-  it.skip('does not execute a gated tool before the decision arrives', () => {});
+    await harness.decideToolApproval(session.id, approval.approvalId, 'allow_once');
+    await finish();
+
+    expect(seenModes).toEqual(['agent']);
+    expect((await harness.getSession(session.id))?.mode).toBe('ask');
+  });
+
+  it('reports a refusal to the model after deny', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'x' }) },
+        { events: textEvents('understood') },
+      ]),
+      { tools: [ECHO, WRITE] },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
+    await harness.decideToolApproval(session.id, approval.approvalId, 'deny');
+    const events = await finish();
+
+    expect(events.find((event) => event.event === 'tool')).toMatchObject({
+      name: 'write_note',
+      denied: true,
+    });
+    const stored = await harness.store.get(session.id);
+    const toolMessage = stored?.messages.find((message) => message.role === 'tool');
+    expect(toolMessage?.content).toContain('UNTRUSTED TOOL RESULT');
+    expect(toolMessage?.content).toMatch(/denied by the user/i);
+    expect(events.at(-1)).toMatchObject({ event: 'done', content: 'understood' });
+  });
+
+  it('does not re-prompt for a tool already granted for the session', async () => {
+    let executed = 0;
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'one' }) },
+        { events: toolEvents('c2', 'write_note', { body: 'two' }) },
+        { events: textEvents('done') },
+      ]),
+      {
+        tools: [
+          ECHO,
+          {
+            ...WRITE,
+            handler: () => {
+              executed += 1;
+              return 'written';
+            },
+          },
+        ],
+      },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
+    await harness.decideToolApproval(session.id, approval.approvalId, 'allow_session');
+    const events = await finish();
+
+    expect(executed).toBe(2);
+    expect(events.filter((event) => event.event === 'tool_approval_required')).toHaveLength(1);
+    expect(events.filter((event) => event.event === 'tool')).toHaveLength(2);
+  });
+
+  it('re-prompts when the same tool is called with different arguments', async () => {
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'one' }) },
+        { events: toolEvents('c2', 'write_note', { body: 'two' }) },
+        { events: textEvents('done') },
+      ]),
+      { tools: [ECHO, WRITE] },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+
+    const events: StreamEvent[] = [];
+    const running = (async () => {
+      for await (const event of harness.runTurn({
+        sessionId: session.id,
+        mode: 'agent',
+        messages: [{ text: 'hi' }],
+      })) {
+        events.push(event);
+        if (event.event === 'tool_approval_required') {
+          await harness.decideToolApproval(session.id, event.approvalId, 'allow_once');
+        }
+      }
+    })();
+    await running;
+
+    expect(events.filter((event) => event.event === 'tool_approval_required')).toHaveLength(2);
+    expect(events.filter((event) => event.event === 'tool')).toHaveLength(2);
+  });
+
+  it('does not execute a gated tool before the decision arrives', async () => {
+    let executed = false;
+    const harness = runtime(
+      new FakeProvider([
+        { events: toolEvents('c1', 'write_note', { body: 'x' }) },
+        { events: textEvents('done') },
+      ]),
+      {
+        tools: [
+          ECHO,
+          {
+            ...WRITE,
+            handler: async () => {
+              executed = true;
+              return 'written';
+            },
+          },
+        ],
+      },
+    );
+    const session = await harness.createSession({ mode: 'agent' });
+    const { approval, finish } = await runUntilApproval(harness, session.id);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(executed).toBe(false);
+
+    await harness.decideToolApproval(session.id, approval.approvalId, 'allow_once');
+    await finish();
+    expect(executed).toBe(true);
+  });
 });
 
 describe('turn loop: plan gate', () => {
