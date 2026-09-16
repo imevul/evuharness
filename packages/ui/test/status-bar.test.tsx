@@ -28,4 +28,11 @@ describe('StatusBar', () => {
       /Context: 12[,.]?400 \/ 32[,.]?768 \(38%\)/,
     );
   });
+
+  it('surfaces an effective effort override', () => {
+    render(
+      <StatusBar provider={{ id: 'local', model: 'm', effort: 'high' }} usage={usage} />,
+    );
+    expect(screen.getByText('high')).toBeTruthy();
+  });
 });

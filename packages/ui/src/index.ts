@@ -37,6 +37,10 @@ export {
   ProviderSettings,
   type ProviderSettingsProps,
 } from './components/ProviderSettings.js';
+export {
+  ProviderOverrideControls,
+  type ProviderOverrideControlsProps,
+} from './components/ProviderOverrideControls.js';
 export { SessionSidebar, type SessionSidebarProps } from './components/SessionSidebar.js';
 export { StatusBar, type StatusBarProps } from './components/StatusBar.js';
 export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCatalogView.js';
@@ -69,3 +73,7 @@ export {
   useHarnessSession,
 } from './hooks/use-harness-session.js';
 export { expandKNotation, parseKNotation } from './k-notation.js';
+export {
+  mergeProviderOverrides,
+  resolveActiveProviderSnapshot,
+} from './provider-override.js';

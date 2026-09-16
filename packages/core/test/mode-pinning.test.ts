@@ -95,6 +95,17 @@ describe('turn persistence must not write the mode', () => {
     expect(persisted.transcript).toHaveLength(1);
   });
 
+  it('keeps a session provider preference when a turn persists', () => {
+    const stored = {
+      ...record('ask'),
+      provider: { model: 'bigger', effort: 'high' as const },
+    };
+    const updated = applyTurnPatch(stored, {
+      transcript: [{ kind: 'assistant', text: 'done' }],
+    });
+    expect(updated.provider).toEqual({ model: 'bigger', effort: 'high' });
+  });
+
   it('persists every turn-owned field', () => {
     const stored = record();
     const usage = { ...emptyUsage(), promptTokensTotal: 10, lastPromptTokens: 10 };

@@ -89,6 +89,20 @@ should not imply otherwise by showing a spinner or disabling the control.
 After a gate changes the session mode, the control resyncs from the terminal
 stream event.
 
+## Provider overrides
+
+Provider / model / effort selection has the same ownership split as modes:
+
+- **Settings active profile** — named profiles in settings. Overrides never rewrite
+  them unless the person edits settings.
+- **Session preference** — persisted on the session via an explicit set-provider
+  call. Survives reloads; does not change settings.
+- **Per-send draft** — local only. Staging for the next chat request; cleared or
+  ignored after send. Mid-turn edits must not touch the session.
+
+Precedence for a turn is turn > session > settings. The status bar shows the
+effective provider and model after those layers.
+
 ## Streaming and navigation
 
 A live stream must survive navigation within the host app. Keep the streaming

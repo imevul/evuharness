@@ -8,7 +8,7 @@ import {
   SessionUsageSchema,
   TranscriptRowSchema,
 } from './session.js';
-import { ProviderOverrideSchema } from './settings.js';
+import { ProviderOverrideSchema, ReasoningEffortSchema } from './settings.js';
 
 /** A user message plus the structured references its chips produced. */
 export const UserTurnInputSchema = z.object({
@@ -84,6 +84,17 @@ export const SetModeRequestSchema = z.object({
 export type SetModeRequest = z.infer<typeof SetModeRequestSchema>;
 
 /**
+ * Persist a session-level provider preference, or clear it with `null`.
+ *
+ * Distinct from a per-turn `ChatRequest.provider`: this writes the session
+ * record and does not rewrite named settings profiles.
+ */
+export const SetProviderRequestSchema = z.object({
+  provider: ProviderOverrideSchema.nullable(),
+});
+export type SetProviderRequest = z.infer<typeof SetProviderRequestSchema>;
+
+/**
  * `follow_up` means the user sent another message while a turn was live. The
  * partial result is persisted and the queued messages are drained as one turn.
  */
@@ -123,6 +134,8 @@ export const ActiveProviderSnapshotSchema = z.object({
   id: z.string().min(1),
   label: z.string().optional(),
   model: z.string().min(1),
+  /** Effective effort after session/turn overrides, when set. */
+  effort: ReasoningEffortSchema.optional(),
   /** Resolved max for `model`: override ?? catalog. Omitted when unknown. */
   contextWindow: z.number().int().positive().optional(),
 });
@@ -160,6 +173,7 @@ export const ROUTES = {
   session: (id: string) => `/sessions/${id}`,
   cancel: (id: string) => `/sessions/${id}/cancel`,
   setMode: (id: string) => `/sessions/${id}/set-mode`,
+  setProvider: (id: string) => `/sessions/${id}/set-provider`,
   toolApproval: (id: string, approvalId: string) => `/sessions/${id}/tool-approvals/${approvalId}`,
   approvePlan: (id: string) => `/sessions/${id}/approve-plan`,
   discardPlan: (id: string) => `/sessions/${id}/discard-plan`,

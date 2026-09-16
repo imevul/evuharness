@@ -24,6 +24,9 @@ export function StatusBar({ provider, usage, className }: StatusBarProps) {
         {provider === null ? 'No provider' : (provider.label ?? provider.id)}
       </span>
       {provider !== null && <span data-harness="status-model">{provider.model}</span>}
+      {provider?.effort !== undefined && (
+        <span data-harness="status-effort">{provider.effort}</span>
+      )}
       {max !== undefined && percent !== null && (
         <ContextDonut used={used} max={max} percent={percent} />
       )}

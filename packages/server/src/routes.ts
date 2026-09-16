@@ -1,4 +1,4 @@
-import { GateNotFoundError, type Harness, setSessionMode } from '@evu/harness-core';
+import { GateNotFoundError, type Harness, setSessionMode, setSessionProvider } from '@evu/harness-core';
 import {
   AskUserResponseRequestSchema,
   CancelRequestSchema,
@@ -12,6 +12,7 @@ import {
   ModeSwitchDecisionRequestSchema,
   PromptPreviewRequestSchema,
   SetModeRequestSchema,
+  SetProviderRequestSchema,
   ToolApprovalDecisionRequestSchema,
 } from '@evu/harness-protocol';
 import { Hono } from 'hono';
@@ -168,6 +169,45 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
     }
 
     await harness.store.upsert(setSessionMode(record, parsed.data.mode, 'explicit-set-mode'));
+    const session = await harness.getSession(id);
+    return c.json(session);
+  });
+
+  /**
+   * Persist a session-level provider / model / effort preference.
+   *
+   * Does not rewrite named settings profiles. A per-turn override on `/chat`
+   * still wins for that turn only and does not call this path.
+   */
+  app.post('/sessions/:id/set-provider', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.chat);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = SetProviderRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    const id = c.req.param('id');
+    const record = await harness.store.get(id);
+    if (record === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    const override = parsed.data.provider;
+    if (override?.providerId !== undefined) {
+      const profile = await harness.getStoredProvider(override.providerId);
+      if (profile === null) {
+        return c.json(
+          { error: 'invalid_request', detail: `Unknown provider: ${override.providerId}` },
+          400,
+        );
+      }
+    }
+
+    await harness.store.upsert(setSessionProvider(record, override));
     const session = await harness.getSession(id);
     return c.json(session);
   });

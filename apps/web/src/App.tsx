@@ -2,6 +2,7 @@ import type {
   ChatModeId,
   ContextMenuDescriptor,
   HarnessSettings,
+  ProviderOverride,
   SessionSummary,
   StatusResponse,
   ToolCatalogEntry,
@@ -11,7 +12,9 @@ import {
   GateStack,
   HarnessClient,
   PromptSettings,
+  ProviderOverrideControls,
   ProviderSettings,
+  resolveActiveProviderSnapshot,
   SessionSidebar,
   StatusBar,
   ToolCatalogView,
@@ -40,11 +43,17 @@ export function App() {
   );
 
   const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [settings, setSettings] = useState<HarnessSettings | null>(null);
   const [menus, setMenus] = useState<ContextMenuDescriptor[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [screen, setScreen] = useState<'chat' | 'settings'>('chat');
   const [bootError, setBootError] = useState<string | null>(null);
+  /**
+   * Optional per-send override. Local draft only — mirrors draft mode ownership
+   * so changing it mid-turn does not touch the session or settings profiles.
+   */
+  const [draftProvider, setDraftProvider] = useState<ProviderOverride | null>(null);
 
   const refreshSessions = useCallback(async () => {
     const response = await client.listSessions();
@@ -56,9 +65,15 @@ export function App() {
     // The catalog and the mode list come from the server rather than being hardcoded
     // here. That is the point of the descriptor: this app does not know which
     // triggers exist.
-    Promise.all([client.status(), client.contextMenus(), refreshSessions()])
-      .then(([statusResponse, catalog, list]) => {
+    Promise.all([
+      client.status(),
+      client.getSettings(),
+      client.contextMenus(),
+      refreshSessions(),
+    ])
+      .then(([statusResponse, settingsResponse, catalog, list]) => {
         setStatus(statusResponse);
+        setSettings(settingsResponse);
         setMenus(catalog.menus);
         setActiveId((current) => current ?? list[0]?.id ?? null);
         setBootError(null);
@@ -68,10 +83,26 @@ export function App() {
       });
   }, [client, refreshSessions]);
 
+  // A session switch drops the per-send draft so it cannot leak across chats.
+  useEffect(() => {
+    setDraftProvider(null);
+  }, [activeId]);
+
   const modes = (status?.modes ?? ['agent']) as ChatModeId[];
   const initialMode = modes[0] ?? 'agent';
 
   const session = useHarnessSession({ client, sessionId: activeId, initialMode });
+
+  const effectiveProvider = useMemo(
+    () =>
+      resolveActiveProviderSnapshot({
+        base: status?.activeProvider ?? null,
+        providers: settings?.providers ?? [],
+        session: session.session?.provider,
+        turn: draftProvider,
+      }),
+    [status?.activeProvider, settings?.providers, session.session?.provider, draftProvider],
+  );
 
   const createSession = useCallback(async () => {
     const created = await client.createSession({ mode: session.draftMode });
@@ -96,12 +127,19 @@ export function App() {
 
   const send = useCallback(
     async (value: { text: string; refs: { menu: string; path: string[]; id: string }[] }) => {
-      await session.send({ text: value.text, refs: value.refs });
+      await session.send({
+        text: value.text,
+        refs: value.refs,
+        ...(draftProvider === null ? {} : { provider: draftProvider }),
+      });
+      // Per-send override is one-shot: clear after queueing so the next send
+      // falls back to the session preference unless the user sets it again.
+      setDraftProvider(null);
       // Titles are derived from the first message, so the sidebar is stale until the
       // turn finishes.
       await refreshSessions();
     },
-    [session, refreshSessions],
+    [session, draftProvider, refreshSessions],
   );
 
   if (bootError !== null) {
@@ -135,7 +173,12 @@ export function App() {
           client={client}
           onBack={() => {
             setScreen('chat');
-            void client.status().then(setStatus);
+            void Promise.all([client.status(), client.getSettings()]).then(
+              ([statusResponse, settingsResponse]) => {
+                setStatus(statusResponse);
+                setSettings(settingsResponse);
+              },
+            );
           }}
         />
       ) : (
@@ -177,6 +220,28 @@ export function App() {
             />
           )}
 
+          {(settings?.providers.length ?? 0) > 0 && activeId !== null && (
+            <div className="provider-overrides">
+              <ProviderOverrideControls
+                className="provider-override-session"
+                providers={settings?.providers ?? []}
+                value={session.session?.provider}
+                disabled={activeId === null}
+                onChange={(next) => {
+                  void session.setSessionProvider(next);
+                }}
+              />
+              <ProviderOverrideControls
+                className="provider-override-draft"
+                providers={settings?.providers ?? []}
+                value={draftProvider}
+                draft
+                disabled={activeId === null}
+                onChange={setDraftProvider}
+              />
+            </div>
+          )}
+
           <Composer
             className="chat-composer"
             menus={menus}
@@ -196,7 +261,7 @@ export function App() {
 
           <StatusBar
             className="chat-status"
-            provider={status?.activeProvider ?? null}
+            provider={effectiveProvider}
             usage={
               session.session?.usage ?? {
                 promptTokensTotal: 0,

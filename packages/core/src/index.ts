@@ -16,6 +16,7 @@ export * from './model-catalog.js';
 export * from './modes.js';
 export * from './openai-client.js';
 export * from './prompts.js';
+export * from './provider-override.js';
 export * from './session-record.js';
 export * from './settings-store.js';
 export * from './skills/index.js';

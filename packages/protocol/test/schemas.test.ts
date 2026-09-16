@@ -12,6 +12,7 @@ import {
   ProviderProfileSchema,
   ProviderProfileWriteSchema,
   ROUTES,
+  SetProviderRequestSchema,
   StatusResponseSchema,
   StreamEventSchema,
 } from '@evu/harness-protocol';
@@ -140,6 +141,13 @@ describe('chat request', () => {
     });
 
     expect(request.provider).toMatchObject({ model: 'bigger-model', effort: 'high' });
+  });
+
+  it('accepts a set-provider body that clears the session preference', () => {
+    expect(SetProviderRequestSchema.parse({ provider: null })).toEqual({ provider: null });
+    expect(
+      SetProviderRequestSchema.parse({ provider: { providerId: 'local', effort: 'high' } }),
+    ).toMatchObject({ provider: { providerId: 'local', effort: 'high' } });
   });
 });
 
