@@ -175,6 +175,53 @@ describe('set-mode', () => {
   });
 });
 
+describe('set-provider', () => {
+  it('persists a session provider preference', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        providers: [
+          { id: 'local', baseUrl: 'https://local.test/v1', model: 'local-m' },
+          { id: 'cloud', baseUrl: 'https://cloud.test/v1', model: 'cloud-m' },
+        ],
+        activeProviderId: 'local',
+      }),
+    });
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+    const response = await post(`/sessions/${created.id}/set-provider`, {
+      provider: { providerId: 'cloud', model: 'bigger', effort: 'high' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      provider: { providerId: 'cloud', model: 'bigger', effort: 'high' },
+    });
+
+    const settings = (await (await get('/settings')).json()) as {
+      providers: { id: string; model: string }[];
+      activeProviderId: string;
+    };
+    expect(settings.activeProviderId).toBe('local');
+    expect(settings.providers.find((p) => p.id === 'cloud')?.model).toBe('cloud-m');
+  });
+
+  it('clears a session preference with null', async () => {
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+    await post(`/sessions/${created.id}/set-provider`, { provider: { model: 'x' } });
+    const response = await post(`/sessions/${created.id}/set-provider`, { provider: null });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as { provider?: unknown }).not.toHaveProperty('provider');
+  });
+
+  it('rejects an unknown provider id', async () => {
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+    expect(
+      (await post(`/sessions/${created.id}/set-provider`, { provider: { providerId: 'missing' } }))
+        .status,
+    ).toBe(400);
+  });
+});
+
 describe('chat', () => {
   it('validates the request before refusing', async () => {
     // A missing mode is a client error; it must not be reported as unimplemented.

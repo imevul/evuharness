@@ -19,6 +19,7 @@ import {
   ROUTES,
   type SessionDetail,
   type SetModeRequest,
+  type SetProviderRequest,
   SseDecoder,
   type StatusResponse,
   type StreamEvent,
@@ -142,6 +143,16 @@ export class HarnessClient {
    */
   setMode(id: string, body: SetModeRequest): Promise<SessionDetail> {
     return this.request(ROUTES.setMode(id), { method: 'POST', json: body });
+  }
+
+  /**
+   * Persist a session-level provider preference, or clear it with `provider: null`.
+   *
+   * Does not rewrite named settings profiles. A per-turn override on `chat()`
+   * still wins for that turn only.
+   */
+  setProvider(id: string, body: SetProviderRequest): Promise<SessionDetail> {
+    return this.request(ROUTES.setProvider(id), { method: 'POST', json: body });
   }
 
   cancel(id: string, reason: 'operator' | 'follow_up' = 'operator'): Promise<void> {

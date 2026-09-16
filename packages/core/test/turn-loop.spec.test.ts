@@ -1697,6 +1697,110 @@ describe('turn loop: prompt and skills', () => {
   it.skip('applies a command resolver result before the turn starts', () => {});
 });
 
+describe('turn loop: provider overrides', () => {
+  it('uses turn > session > settings for model and effort', async () => {
+    const provider = new FakeProvider([{ events: textEvents('ok') }]);
+    const harness = createHarness({
+      provider,
+      providers: [
+        { id: 'local', baseUrl: 'https://local.test/v1', model: 'settings-model' },
+        { id: 'cloud', baseUrl: 'https://cloud.test/v1', model: 'cloud-model' },
+      ],
+      activeProviderId: 'local',
+    });
+    const session = await harness.createSession({ mode: 'ask' });
+    await harness.store.upsert({
+      ...(await harness.store.get(session.id))!,
+      provider: { providerId: 'cloud', model: 'session-model', effort: 'low' },
+    });
+
+    for await (const _event of harness.runTurn({
+      sessionId: session.id,
+      mode: 'ask',
+      messages: [{ text: 'hi' }],
+      provider: { model: 'turn-model', effort: 'high' },
+    })) {
+      // drain
+    }
+
+    expect(provider.calls[0]).toMatchObject({ model: 'turn-model', effort: 'high' });
+    // Session preference is unchanged by a per-turn override.
+    expect((await harness.store.get(session.id))?.provider).toEqual({
+      providerId: 'cloud',
+      model: 'session-model',
+      effort: 'low',
+    });
+    // Settings profile is unchanged.
+    expect((await harness.getSettings()).providers.find((p) => p.id === 'cloud')?.model).toBe(
+      'cloud-model',
+    );
+  });
+
+  it('falls back from turn to session to settings', async () => {
+    const provider = new FakeProvider([
+      { events: textEvents('a') },
+      { events: textEvents('b') },
+      { events: textEvents('c') },
+    ]);
+    const harness = createHarness({
+      provider,
+      providers: [
+        { id: 'local', baseUrl: 'https://local.test/v1', model: 'settings-model' },
+        { id: 'cloud', baseUrl: 'https://cloud.test/v1', model: 'cloud-model' },
+      ],
+      activeProviderId: 'local',
+    });
+
+    const settingsOnly = await harness.createSession({ mode: 'ask' });
+    await collect(harness, settingsOnly.id);
+    expect(provider.calls[0]?.model).toBe('settings-model');
+
+    const withSession = await harness.createSession({ mode: 'ask' });
+    await harness.store.upsert({
+      ...(await harness.store.get(withSession.id))!,
+      provider: { providerId: 'cloud', effort: 'medium' },
+    });
+    await collect(harness, withSession.id);
+    expect(provider.calls[1]).toMatchObject({ model: 'cloud-model', effort: 'medium' });
+
+    for await (const _event of harness.runTurn({
+      sessionId: withSession.id,
+      mode: 'ask',
+      messages: [{ text: 'again' }],
+      provider: { effort: 'minimal' },
+    })) {
+      // drain
+    }
+    expect(provider.calls[2]).toMatchObject({ model: 'cloud-model', effort: 'minimal' });
+  });
+
+  it('does not let a turn write wipe a concurrent session provider preference', async () => {
+    const store: SessionStore = new InMemorySessionStore();
+    const provider = new FakeProvider([
+      {
+        events: textEvents('ok'),
+        delayMs: 20,
+      },
+    ]);
+    const harness = createHarness({
+      store,
+      provider,
+      providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+    });
+    const session = await harness.createSession({ mode: 'ask' });
+
+    const turn = collect(harness, session.id);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await store.upsert({
+      ...(await store.get(session.id))!,
+      provider: { model: 'kept' },
+    });
+    await turn;
+
+    expect((await store.get(session.id))?.provider).toEqual({ model: 'kept' });
+  });
+});
+
 describe('turn loop: session persistence', () => {
   it('keeps the model thread and the UI transcript in step', async () => {
     const harness = runtime(

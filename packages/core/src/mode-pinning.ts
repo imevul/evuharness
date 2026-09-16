@@ -72,6 +72,8 @@ export interface TurnPatch {
   title?: string;
   /** Structurally forbidden: a turn must never write the session mode. */
   mode?: never;
+  /** Structurally forbidden: a turn must never write the session provider preference. */
+  provider?: never;
 }
 
 /**
@@ -103,8 +105,9 @@ export function applyTurnPatch(
     ...(patch.pending === undefined ? {} : { pending: patch.pending }),
     ...(patch.title === undefined ? {} : { title: patch.title }),
     // Never taken from the patch: re-read from storage so a concurrent set-mode
-    // survives this write.
+    // or set-provider survives this write.
     mode: stored.mode,
+    ...(stored.provider === undefined ? {} : { provider: stored.provider }),
     updatedAt: now ?? new Date().toISOString(),
   };
 }

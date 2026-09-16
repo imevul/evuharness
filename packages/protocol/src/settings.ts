@@ -72,7 +72,8 @@ export type ProviderProfileWrite = z.infer<typeof ProviderProfileWriteSchema>;
  * Per-session or per-turn override of the active provider.
  *
  * A turn-level override does not change the session default, which keeps
- * "try this once with a bigger model" from mutating the session.
+ * "try this once with a bigger model" from mutating the session. Session
+ * overrides never rewrite named settings profiles either.
  */
 export const ProviderOverrideSchema = z.object({
   providerId: z.string().min(1).optional(),
@@ -80,6 +81,34 @@ export const ProviderOverrideSchema = z.object({
   effort: ReasoningEffortSchema.optional(),
 });
 export type ProviderOverride = z.infer<typeof ProviderOverrideSchema>;
+
+/**
+ * Field-wise merge of provider overrides.
+ *
+ * Later layers win per field. Pass layers in ascending precedence order, e.g.
+ * `mergeProviderOverrides(session, turn)` so turn > session. Settings active
+ * profile is not an override layer — it is the base profile the turn loop
+ * resolves when `providerId` is unset.
+ */
+export function mergeProviderOverrides(
+  ...layers: Array<ProviderOverride | null | undefined>
+): ProviderOverride | undefined {
+  const merged: ProviderOverride = {};
+  for (const layer of layers) {
+    if (layer == null) continue;
+    if (layer.providerId !== undefined) merged.providerId = layer.providerId;
+    if (layer.model !== undefined) merged.model = layer.model;
+    if (layer.effort !== undefined) merged.effort = layer.effort;
+  }
+  if (
+    merged.providerId === undefined &&
+    merged.model === undefined &&
+    merged.effort === undefined
+  ) {
+    return undefined;
+  }
+  return merged;
+}
 
 export const PromptSettingsSchema = z.object({
   global: z.string().default(''),

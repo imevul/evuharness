@@ -40,6 +40,13 @@ export interface HarnessSessionState {
    */
   draftMode: ChatModeId;
   setDraftMode: (mode: ChatModeId) => void;
+  /**
+   * Persist a session-level provider preference.
+   *
+   * Distinct from a per-turn override passed to `send`. Does not rewrite named
+   * settings profiles.
+   */
+  setSessionProvider: (provider: ProviderOverride | null) => Promise<void>;
   send: (input: {
     text: string;
     refs?: ContextRef[];
@@ -292,6 +299,22 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     [client, sessionId, reload],
   );
 
+  const setSessionProvider = useCallback(
+    async (provider: ProviderOverride | null) => {
+      if (sessionId === null) {
+        return;
+      }
+      try {
+        const detail = await client.setProvider(sessionId, { provider });
+        setSession(detail);
+        setError(null);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'set_provider_failed');
+      }
+    },
+    [client, sessionId],
+  );
+
   return {
     session,
     transcript,
@@ -300,6 +323,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     error,
     draftMode,
     setDraftMode,
+    setSessionProvider,
     send,
     cancel,
     decideToolApproval,

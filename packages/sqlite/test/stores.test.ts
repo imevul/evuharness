@@ -57,6 +57,15 @@ describe('session persistence', () => {
     expect(loaded).toEqual(original);
   });
 
+  it('round-trips a session provider preference', async () => {
+    const original = {
+      ...record(),
+      provider: { providerId: 'cloud', model: 'bigger', effort: 'high' as const },
+    };
+    await sessions.upsert(original);
+    expect((await sessions.get(SESSION))?.provider).toEqual(original.provider);
+  });
+
   it('returns null for a missing session', async () => {
     expect(await sessions.get('nope')).toBeNull();
   });

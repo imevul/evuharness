@@ -34,6 +34,10 @@ export {
   type PromptSettingsProps,
 } from './components/PromptSettings.js';
 export {
+  ProviderOverrideControls,
+  type ProviderOverrideControlsProps,
+} from './components/ProviderOverrideControls.js';
+export {
   ProviderSettings,
   type ProviderSettingsProps,
 } from './components/ProviderSettings.js';
@@ -69,3 +73,7 @@ export {
   useHarnessSession,
 } from './hooks/use-harness-session.js';
 export { expandKNotation, parseKNotation } from './k-notation.js';
+export {
+  mergeProviderOverrides,
+  resolveActiveProviderSnapshot,
+} from './provider-override.js';

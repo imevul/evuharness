@@ -29,6 +29,7 @@ import { digestToolCall, type GrantStore, grantForDecision, resolveGrant } from 
 import { applyTurnPatch, type ModeWriter, type TurnPin } from './mode-pinning.js';
 import type { ProviderCompleteInput } from './openai-client.js';
 import { mergeIntoLeadingSystemMessage } from './prompts.js';
+import { resolveProviderSelection } from './provider-override.js';
 import {
   DEFAULT_SESSION_TITLE,
   emptyGates,
@@ -371,13 +372,17 @@ async function* executeTurn(
   const scope: Scope = loaded.workspaceId === undefined ? {} : { workspaceId: loaded.workspaceId };
   const pin = await deps.pinTurn({ sessionId, mode: request.mode, scope });
 
-  const profile = await (request.provider?.providerId === undefined
-    ? deps.getStoredProvider()
-    : deps.getStoredProvider(request.provider.providerId));
-  if (profile === null) {
+  // Turn > session > settings active profile. Per-turn never rewrites the session.
+  const selection = await resolveProviderSelection(
+    (id) => deps.getStoredProvider(id),
+    loaded.provider,
+    request.provider,
+  );
+  if (selection === null) {
     yield { event: 'error', sessionId, message: 'No provider configured' };
     return;
   }
+  const { profile, model } = selection;
 
   const resolved = await resolveUserTurns(deps, request.messages, {
     sessionId,
@@ -399,7 +404,6 @@ async function* executeTurn(
   let promptExtra = resolved.promptExtra;
   const maxToolRounds = await deps.maxToolRounds();
   const pinnedTools = deps.tools.specsForMode(pin.toolNames);
-  const model = request.provider?.model ?? profile.model;
   const turnTools: ToolEvent[] = [];
   let content = '';
   let reasoning = '';
@@ -433,7 +437,7 @@ async function* executeTurn(
         tools: atCap ? [] : [...pinnedTools],
         model,
         signal: handle.controller.signal,
-        ...(request.provider?.effort === undefined ? {} : { effort: request.provider.effort }),
+        ...(selection.effort === undefined ? {} : { effort: selection.effort }),
         timeoutMs: profile.timeoutMs,
       });
 
