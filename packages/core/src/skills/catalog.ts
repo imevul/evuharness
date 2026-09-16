@@ -46,9 +46,7 @@ export interface FilesystemSkillCatalogOptions {
  * Path handling follows SECURITY.md: normalize, stay inside each root, refuse
  * symlinks that escape, and enforce a size limit before reading.
  */
-export function createFilesystemSkillCatalog(
-  options: FilesystemSkillCatalogOptions,
-): SkillCatalog {
+export function createFilesystemSkillCatalog(options: FilesystemSkillCatalogOptions): SkillCatalog {
   const roots = options.roots.map((root) => resolve(root));
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   let cache: Skill[] | null = null;

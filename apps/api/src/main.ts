@@ -1,11 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createFilesystemSkillCatalog,
-  createHarness,
-  FakeProvider,
-} from '@evu/harness-core';
+import { createFilesystemSkillCatalog, createHarness, FakeProvider } from '@evu/harness-core';
 import { createHarnessRouter } from '@evu/harness-server';
 import {
   openDatabase,

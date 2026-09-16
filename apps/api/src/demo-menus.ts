@@ -1,8 +1,8 @@
 import {
   type ContextMenuDefinition,
-  type SkillCatalog,
   commandsMenu,
   mentionsMenu,
+  type SkillCatalog,
   skillsMenu,
 } from '@evu/harness-core';
 import type { ContextMenuNode } from '@evu/harness-protocol';

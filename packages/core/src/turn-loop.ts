@@ -552,7 +552,6 @@ async function* executeTurn(
           continue;
         }
 
-
         if (call.name === BUILTIN_TOOL_NAMES.loadSkill) {
           const loaded = await runLoadSkill(deps, pin, call);
           if (loaded.injection !== '') {
@@ -1570,7 +1569,6 @@ async function invokeTool(
     return `Tool failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
-
 
 async function runLoadSkill(
   deps: TurnControllerDeps,

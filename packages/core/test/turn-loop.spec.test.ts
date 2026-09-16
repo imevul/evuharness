@@ -1617,7 +1617,9 @@ describe('turn loop: prompt and skills', () => {
       true,
     );
     expect(provider.calls).toHaveLength(2);
-    const systemMessages = provider.calls[1]?.messages.filter((message) => message.role === 'system');
+    const systemMessages = provider.calls[1]?.messages.filter(
+      (message) => message.role === 'system',
+    );
     expect(systemMessages).toHaveLength(1);
     expect(systemMessages?.[0]?.content).toContain('Always read the diff first.');
     expect(systemMessages?.[0]?.content).toContain('Loaded skill: review');

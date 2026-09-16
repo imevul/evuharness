@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,10 +8,10 @@ import {
   formatSkillInjection,
   ModeRegistry,
   parseSkillMarkdown,
+  STOCK_MODES,
   skillMenuSource,
   skillsMenu,
   staticSkillCatalog,
-  STOCK_MODES,
 } from '@evu/harness-core';
 import { describe, expect, it } from 'vitest';
 
@@ -62,9 +62,7 @@ describe('static and filesystem catalogs', () => {
 
     const catalog = createFilesystemSkillCatalog({ roots: [root] });
     const listed = await catalog.list();
-    expect(listed).toEqual([
-      expect.objectContaining({ id: 'doctor', name: 'doctor' }),
-    ]);
+    expect(listed).toEqual([expect.objectContaining({ id: 'doctor', name: 'doctor' })]);
     expect((await catalog.get('doctor'))?.body).toContain('Check diffs');
   });
 
