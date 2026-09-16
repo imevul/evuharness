@@ -28,6 +28,7 @@ import { resolveContextWindow } from './model-catalog.js';
 import { type ModePolicy, ModeRegistry, STOCK_MODES } from './modes.js';
 import { OpenAICompatibleClient } from './openai-client.js';
 import { composePrompt, type PromptConfig } from './prompts.js';
+import { type SessionCacheOptions, withSessionLock, wrapSessionStore } from './session-cache.js';
 import {
   createSessionRecord,
   type SessionRecord,
@@ -47,11 +48,6 @@ import {
   toPublicSettings,
 } from './settings-store.js';
 import { builtinLoadSkillTool, type SkillCatalog, type SkillSummary } from './skills/index.js';
-import {
-  type SessionCacheOptions,
-  withSessionLock,
-  wrapSessionStore,
-} from './session-cache.js';
 import type { ListSessionsOptions, SessionStore } from './stores.js';
 import { InMemoryGrantStore, InMemorySessionStore } from './stores.js';
 import { type ToolDefinition, ToolRegistry } from './tools.js';

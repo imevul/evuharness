@@ -1934,10 +1934,7 @@ describe('turn loop: session persistence', () => {
     };
 
     const harness = runtime(
-      new FakeProvider([
-        { events: textEvents('one'), delayMs: 40 },
-        { echo: true },
-      ]),
+      new FakeProvider([{ events: textEvents('one'), delayMs: 40 }, { echo: true }]),
       { store },
     );
     const session = await harness.createSession({ mode: 'ask' });
