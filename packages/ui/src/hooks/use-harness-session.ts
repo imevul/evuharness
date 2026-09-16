@@ -12,7 +12,7 @@ import type {
 import { isTerminalEvent } from '@evu/harness-protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HarnessClient } from '../client.js';
-import { type LiveTurn, LIVE_TURN_POLL_MS, splitLiveSession } from './session-live.js';
+import { LIVE_TURN_POLL_MS, type LiveTurn, splitLiveSession } from './session-live.js';
 
 export type { LiveTurn, SplitLiveSession } from './session-live.js';
 export { LIVE_TURN_POLL_MS, splitLiveSession } from './session-live.js';
