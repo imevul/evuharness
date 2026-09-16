@@ -73,7 +73,6 @@ function toolEvents(id: string, name: string, args: Record<string, unknown> = {}
   ];
 }
 
-
 /**
  * Run a turn until the first tool-approval gate opens, then hand control back.
  *
