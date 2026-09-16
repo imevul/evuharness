@@ -78,6 +78,7 @@ const harness = createHarness({
   contextMenus: [...],    // composer menus, keyed by trigger character
   prompts: { global, perMode, dynamic },
   policies: { approvals, askUser },
+  compactContext,         // optional; defaults to naive truncating compaction
 });
 ```
 
@@ -252,6 +253,17 @@ global prompt
 
 Composition is exposed as a preview so that a person can see exactly what the
 model will receive, including dynamic content.
+
+## Context compaction
+
+Before each provider `complete` call the turn loop runs a host-overridable
+compaction hook over the outbound model thread (system prompt plus stored
+messages, after leading-system merges such as skills and prompt extras). The
+stock default is a naive truncator: keep the leading system message and the
+newest messages within a configurable message and/or approximate token budget.
+Compaction never rewrites the stored session transcript — only the thread sent
+to the model. Hosts replace the hook to summarize, or pass an identity function
+to disable it.
 
 ## Providers
 
