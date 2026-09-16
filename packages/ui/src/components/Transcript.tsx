@@ -1,5 +1,5 @@
 import type { ToolEvent, TranscriptRow } from '@evu/harness-protocol';
-import type { LiveTurn } from '../hooks/use-harness-session.js';
+import type { LiveTurn } from '../hooks/session-live.js';
 import { MarkdownView } from './MarkdownView.js';
 
 export interface TranscriptProps {

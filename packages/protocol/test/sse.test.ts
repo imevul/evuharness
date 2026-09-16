@@ -1,4 +1,5 @@
 import {
+  encodeSseComment,
   encodeSseEvent,
   isTerminalEvent,
   parseSseChunk,
@@ -54,6 +55,15 @@ describe('SSE framing', () => {
   it('ignores the [DONE] sentinel some providers append', () => {
     const { events } = parseSseChunk('data: [DONE]\n\n');
     expect(events).toEqual([]);
+  });
+
+  it('encodes comment keep-alives that parsers ignore', () => {
+    const ping = encodeSseComment('keepalive');
+    expect(ping.startsWith(': ')).toBe(true);
+    expect(parseSseChunk(ping).events).toEqual([]);
+    expect(parseSseChunk(`${ping}${encodeSseEvent(delta('ok'))}`).events).toEqual([
+      { event: 'delta', text: 'ok' },
+    ]);
   });
 });
 

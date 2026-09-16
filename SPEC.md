@@ -228,6 +228,25 @@ Cancellation is cooperative and always persists what was produced. A user who
 sends another message during a live turn cancels it as a follow-up: the partial
 result is saved and the queued messages are drained as a single next turn.
 
+### Keep-alive and reconnect
+
+While a `/chat` SSE body is open, the server emits periodic comment frames
+(`: keepalive`) so proxies do not idle-timeout a quiet turn (long tool runs,
+open gates). Comment frames are not events; clients ignore them.
+
+Dropping the HTTP body does **not** cancel the turn. The server keeps draining
+the turn loop so work finishes and persists. Explicit cancel remains
+`POST /sessions/:id/cancel`.
+
+Hosts that lose the stream should:
+
+1. Keep stream ownership above route remounts when possible.
+2. On unexpected disconnect, `GET /sessions/:id` and read `turnInProgress`.
+3. If the flag is set, rebuild the live bubble from any trailing `partial`
+   assistant transcript row and poll (or remount stream state) until it clears.
+
+Full multi-tab fan-out of the live event stream is out of scope.
+
 ## Context menus
 
 Rich composer input is a catalog of context menus. There is no mention concept

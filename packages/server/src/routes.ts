@@ -12,8 +12,10 @@ import {
   ConnectionTestRequestSchema,
   ContextMenuItemsRequestSchema,
   CreateSessionRequestSchema,
+  encodeSseComment,
   encodeSseEvent,
   HarnessSettingsUpdateSchema,
+  SSE_KEEPALIVE_INTERVAL_MS,
   ModelListRequestSchema,
   ModeSwitchDecisionRequestSchema,
   PromptPreviewRequestSchema,
@@ -35,6 +37,13 @@ export interface HarnessRouterOptions {
   auth?: AuthHooks;
   /** Reported on `/health`. Defaults to the protocol version. */
   version?: string;
+  /**
+   * Interval for SSE comment keep-alives while a `/chat` turn is open.
+   *
+   * Defaults to `SSE_KEEPALIVE_INTERVAL_MS`. Set lower in tests. `0` disables
+   * pings (still safe for hosts that terminate idle connections themselves).
+   */
+  sseKeepAliveMs?: number;
 }
 
 /**
@@ -46,6 +55,7 @@ export interface HarnessRouterOptions {
 export function createHarnessRouter(options: HarnessRouterOptions): Hono {
   const { harness } = options;
   const auth = options.auth ?? {};
+  const keepAliveMs = options.sseKeepAliveMs ?? SSE_KEEPALIVE_INTERVAL_MS;
   const app = new Hono();
 
   /**
@@ -233,6 +243,12 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
    *
    * The server only frames SSE. The turn itself — pin, rounds, persist, cancel —
    * lives on the harness so a non-HTTP surface can call the same loop.
+   *
+   * Client disconnect does **not** cancel the turn. Brief drops (proxy idle
+   * timeout that keep-alives missed, host route remount aborting the fetch) are
+   * expected; the generator keeps draining so the turn finishes and persists.
+   * A reconnecting client reloads session state via `turnInProgress`. Explicit
+   * `POST .../cancel` still stops the live turn.
    */
   app.post('/chat', async (c) => {
     const rejection = await guard(c.req.raw, CAPABILITIES.chat);
@@ -248,30 +264,59 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
       return c.json({ error: 'invalid_request', detail: `Unknown mode: ${parsed.data.mode}` }, 400);
     }
 
-    const abort = new AbortController();
     const incoming = c.req.raw.signal;
-    const onDisconnect = () => abort.abort();
-    incoming.addEventListener('abort', onDisconnect, { once: true });
-
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        let clientOpen = !incoming.aborted;
+        const onDisconnect = () => {
+          clientOpen = false;
+        };
+        incoming.addEventListener('abort', onDisconnect, { once: true });
+
+        const enqueue = (chunk: string): void => {
+          if (!clientOpen) {
+            return;
+          }
+          try {
+            controller.enqueue(encoder.encode(chunk));
+          } catch {
+            // The consumer closed the body; keep draining the turn below.
+            clientOpen = false;
+          }
+        };
+
+        const ping =
+          keepAliveMs > 0
+            ? setInterval(() => {
+                enqueue(encodeSseComment('keepalive'));
+              }, keepAliveMs)
+            : null;
+
         try {
-          for await (const event of harness.runTurn(parsed.data, abort.signal)) {
-            controller.enqueue(encoder.encode(encodeSseEvent(event)));
+          // No request-signal abort: disconnect must not cancel the turn.
+          for await (const event of harness.runTurn(parsed.data)) {
+            enqueue(encodeSseEvent(event));
           }
         } catch (error) {
-          controller.enqueue(
-            encoder.encode(
-              encodeSseEvent({
-                event: 'error',
-                message: messageOf(error),
-              }),
-            ),
+          enqueue(
+            encodeSseEvent({
+              event: 'error',
+              message: messageOf(error),
+            }),
           );
         } finally {
+          if (ping !== null) {
+            clearInterval(ping);
+          }
           incoming.removeEventListener('abort', onDisconnect);
-          controller.close();
+          if (clientOpen) {
+            try {
+              controller.close();
+            } catch {
+              // Already closed by the consumer.
+            }
+          }
         }
       },
     });

@@ -74,7 +74,10 @@ export {
 export {
   applyStreamEvent,
   type HarnessSessionState,
+  LIVE_TURN_POLL_MS,
   type LiveTurn,
+  type SplitLiveSession,
+  splitLiveSession,
   type UseHarnessSessionOptions,
   useHarnessSession,
 } from './hooks/use-harness-session.js';

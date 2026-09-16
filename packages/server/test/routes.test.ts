@@ -265,6 +265,68 @@ describe('chat', () => {
     expect(body).toContain('"event":"done"');
   });
 
+  it('emits SSE comment keep-alives while a turn is quiet', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider([{ echo: true, delayMs: 80 }]),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+      sseKeepAliveMs: 20,
+    });
+    const created = await (await post('/sessions', { mode: 'ask' })).json();
+    const response = await post('/chat', {
+      sessionId: (created as { id: string }).id,
+      mode: 'ask',
+      messages: [{ text: 'hello' }],
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain(': keepalive');
+    expect(body).toContain('"event":"done"');
+  });
+
+  it('keeps the turn alive after the SSE consumer disconnects', async () => {
+    app = createHarnessRouter({
+      harness: build({
+        provider: new FakeProvider([{ echo: true, delayMs: 40 }]),
+        providers: [{ id: 'p', baseUrl: 'https://example.test/v1', model: 'm' }],
+      }),
+      sseKeepAliveMs: 0,
+    });
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+    const abort = new AbortController();
+
+    const response = await app.request('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: created.id,
+        mode: 'ask',
+        messages: [{ text: 'stay' }],
+      }),
+      signal: abort.signal,
+    });
+    expect(response.status).toBe(200);
+    abort.abort();
+
+    // Give the background drain time to finish after the client dropped.
+    for (let i = 0; i < 40; i += 1) {
+      const detail = (await (await get(`/sessions/${created.id}`)).json()) as {
+        turnInProgress: boolean;
+        transcript: Array<{ kind: string; text: string; cancelled?: boolean }>;
+      };
+      if (!detail.turnInProgress) {
+        const assistant = detail.transcript.filter((row) => row.kind === 'assistant');
+        expect(assistant.length).toBeGreaterThan(0);
+        expect(assistant.at(-1)?.cancelled).not.toBe(true);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error('turn did not finish after disconnect');
+  });
+
   it('cancels a session that exists', async () => {
     app = createHarnessRouter({
       harness: build({

@@ -116,6 +116,17 @@ effective provider and model after those layers.
 A live stream must survive navigation within the host app. Keep the streaming
 state above the route boundary rather than inside a page component.
 
+The kit's `useHarnessSession` follows that rule when the host mounts it once for
+the active session. Remounting the hook aborts only the local SSE reader; the
+server keeps the turn running. On remount or unexpected stream failure the hook
+reloads session detail, and when `turnInProgress` is set it rebuilds the live
+bubble from any partial assistant row and polls until the turn completes.
+
+Hosts that build their own client should do the same: prefer retaining the
+stream owner across routes, and treat `turnInProgress` plus partial transcript
+rows as the reconnect contract. The server emits SSE comment keep-alives during
+an open turn so quiet gate/tool waits do not idle-timeout the connection.
+
 ## Reasoning
 
 Providers may emit `reasoning_delta`. The transcript shows that text in a
