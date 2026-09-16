@@ -1,14 +1,29 @@
-import type { ChatModeId, ContextMenuDescriptor, ContextRef } from '@evu/harness-protocol';
-import { type KeyboardEvent, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import type {
+  AttachmentRef,
+  ChatModeId,
+  ContextMenuDescriptor,
+  ContextRef,
+} from '@evu/harness-protocol';
 import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import {
+  attachmentFromFile,
   type ComposerValue,
   deleteChipAfterCaret,
   deleteChipBeforeCaret,
+  insertAttachmentAtCaret,
   mergeComposerRefs,
   paintComposer,
   readSelectionCaret,
   serializeComposer,
   setComposerCaret,
+  toWireAttachments,
   toWireRefs,
 } from '../composer/serialize.js';
 import { type ContextMenuFetcher, useContextMenu } from '../hooks/use-context-menu.js';
@@ -22,10 +37,15 @@ export interface ComposerProps {
   mode: ChatModeId;
   onModeChange: (mode: ChatModeId) => void;
   /**
-   * Called with wire text plus structured refs. Presentation fields on chips are
-   * stripped — the payload matches `UserTurnInput`.
+   * Called with wire text plus structured refs and attachments. Presentation
+   * fields on chips are stripped — the payload matches `UserTurnInput`.
    */
-  onSend: (value: { text: string; refs: ContextRef[]; caret: number }) => void;
+  onSend: (value: {
+    text: string;
+    refs: ContextRef[];
+    attachments: AttachmentRef[];
+    caret: number;
+  }) => void;
   onCancel?: () => void;
   turnInProgress?: boolean;
   disabled?: boolean;
@@ -33,9 +53,14 @@ export interface ComposerProps {
   className?: string;
   /** Forwarded to `useContextMenu`; tests may set `0` to skip the keystroke debounce. */
   menuDebounceMs?: number;
+  /**
+   * When true, show the attach control and accept image/file chips.
+   * Mirrors harness `features.attachments` (default off).
+   */
+  attachmentsEnabled?: boolean;
 }
 
-const EMPTY: ComposerValue = { text: '', caret: 0, refs: [] };
+const EMPTY: ComposerValue = { text: '', caret: 0, refs: [], attachments: [] };
 
 /**
  * The message composer: contenteditable input, inline chips, mode chip, and the
@@ -51,7 +76,7 @@ const EMPTY: ComposerValue = { text: '', caret: 0, refs: [] };
  * does, so cycling modes during a turn stays harmless.
  *
  * Contenteditable is the editing surface; `serializeComposer` turns it into wire
- * text (chip tokens, not labels) plus `refs[]` at send time.
+ * text (chip tokens, not labels) plus `refs[]` / `attachments[]` at send time.
  */
 export function Composer(props: ComposerProps) {
   const {
@@ -67,10 +92,12 @@ export function Composer(props: ComposerProps) {
     placeholder = 'Send a message…',
     className,
     menuDebounceMs,
+    attachmentsEnabled = false,
   } = props;
 
   const [value, setValue] = useState<ComposerValue>(EMPTY);
   const editorRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Menu picks rewrite the DOM from the wire value; keystrokes must not, or the
   // caret jumps on every character.
   const needsPaint = useRef(false);
@@ -113,11 +140,12 @@ export function Composer(props: ComposerProps) {
   const submit = useCallback(() => {
     if (disabled) return;
     const current = readEditor();
-    if (current.text.trim() === '') return;
+    if (current.text.trim() === '' && current.attachments.length === 0) return;
     onSend({
       text: current.text,
       caret: current.caret,
       refs: toWireRefs(current.refs),
+      attachments: toWireAttachments(current.attachments),
     });
     needsPaint.current = true;
     setValue(EMPTY);
@@ -128,6 +156,32 @@ export function Composer(props: ComposerProps) {
     const next = modes[(index + 1) % modes.length];
     if (next !== undefined) onModeChange(next);
   }, [modes, mode, onModeChange]);
+
+  const onAttachClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const onFilesChosen = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      event.target.value = '';
+      if (files === null || files.length === 0 || disabled || !attachmentsEnabled) {
+        return;
+      }
+
+      let next = readEditor();
+      for (const file of Array.from(files)) {
+        try {
+          const attachment = await attachmentFromFile(file);
+          next = insertAttachmentAtCaret(next, attachment);
+        } catch {
+          // Skip unreadable files rather than blocking the rest of the selection.
+        }
+      }
+      applyValue(next, true);
+    },
+    [applyValue, attachmentsEnabled, disabled, readEditor],
+  );
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
@@ -214,7 +268,7 @@ export function Composer(props: ComposerProps) {
     [menu, value.caret, cycleMode, submit, turnInProgress, onCancel, syncFromEditor],
   );
 
-  const empty = value.text.trim() === '';
+  const empty = value.text.trim() === '' && value.attachments.length === 0;
 
   return (
     <div className={className} data-harness="composer">
@@ -247,6 +301,29 @@ export function Composer(props: ComposerProps) {
         <button type="button" data-harness="mode-chip" onClick={cycleMode} disabled={disabled}>
           {mode}
         </button>
+
+        {attachmentsEnabled ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/gif,image/webp,text/*,application/json,.md,.txt,.csv"
+              data-harness="composer-attach-input"
+              hidden
+              onChange={(event) => void onFilesChosen(event)}
+            />
+            <button
+              type="button"
+              data-harness="composer-attach"
+              onClick={onAttachClick}
+              disabled={disabled}
+              aria-label="Attach files"
+            >
+              Attach
+            </button>
+          </>
+        ) : null}
 
         {turnInProgress && onCancel !== undefined ? (
           <button type="button" data-harness="composer-cancel" onClick={onCancel}>

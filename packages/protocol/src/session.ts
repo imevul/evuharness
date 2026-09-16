@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AttachmentRefSchema, MessageContentSchema } from './attachments.js';
 
 /**
  * Mode ids are open strings rather than a closed enum: custom modes are an
@@ -38,7 +39,11 @@ export type MessageToolCall = z.infer<typeof MessageToolCallSchema>;
 /** A message in the thread sent to the model. */
 export const ChatMessageSchema = z.object({
   role: MessageRoleSchema,
-  content: z.string(),
+  /**
+   * Plain string for most roles. User turns with images may use multimodal
+   * parts (`text` + `image_url`) so OpenAI-compatible providers receive them.
+   */
+  content: MessageContentSchema,
   name: z.string().optional(),
   toolCallId: z.string().optional(),
   toolCalls: z.array(MessageToolCallSchema).optional(),
@@ -68,6 +73,8 @@ export type TranscriptRowKind = z.infer<typeof TranscriptRowKindSchema>;
 export const TranscriptRowSchema = z.object({
   kind: TranscriptRowKindSchema,
   text: z.string(),
+  /** Structured attachments echoed for UI chips; never sent to the model alone. */
+  attachments: z.array(AttachmentRefSchema).optional(),
   tools: z.array(ToolEventSchema).optional(),
   reasoning: z.string().optional(),
   partial: z.boolean().optional(),

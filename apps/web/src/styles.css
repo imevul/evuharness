@@ -294,6 +294,23 @@ pre {
 [data-harness="composer-actions"] {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-harness="composer-attach"] {
+  margin-right: auto;
+}
+
+[data-harness="transcript-attachments"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+[data-harness="chip"][data-kind="attachment"] {
+  border-style: dashed;
 }
 
 .provider-overrides {

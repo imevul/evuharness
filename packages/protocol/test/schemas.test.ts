@@ -1,5 +1,6 @@
 import {
   ApprovalDecisionSchema,
+  attachmentToken,
   ChatMessageSchema,
   ChatRequestSchema,
   ContextMenuDescriptorSchema,
@@ -8,6 +9,7 @@ import {
   ContextMenuNodeSchema,
   GrantSchema,
   HarnessSettingsUpdateSchema,
+  isAllowedAttachmentUrl,
   isBuiltinToolName,
   ProviderProfileSchema,
   ProviderProfileWriteSchema,
@@ -15,6 +17,7 @@ import {
   SetProviderRequestSchema,
   StatusResponseSchema,
   StreamEventSchema,
+  textFromMessageContent,
 } from '@evu/harness-protocol';
 import { describe, expect, it } from 'vitest';
 
@@ -131,6 +134,40 @@ describe('chat request', () => {
   it('defaults refs to an empty array', () => {
     const request = ChatRequestSchema.parse({ mode: 'ask', messages: [{ text: 'hi' }] });
     expect(request.messages[0]?.refs).toEqual([]);
+  });
+
+  it('defaults attachments to an empty array', () => {
+    const request = ChatRequestSchema.parse({ mode: 'ask', messages: [{ text: 'hi' }] });
+    expect(request.messages[0]?.attachments).toEqual([]);
+  });
+
+  it('accepts structured image and file attachments on a user turn', () => {
+    const request = ChatRequestSchema.parse({
+      mode: 'ask',
+      messages: [
+        {
+          text: 'see [image:shot.png]',
+          attachments: [
+            {
+              id: 'a1',
+              kind: 'image',
+              name: 'shot.png',
+              mimeType: 'image/png',
+              url: 'data:image/png;base64,abc',
+              size: 12,
+            },
+            {
+              id: 'a2',
+              kind: 'file',
+              name: 'notes.txt',
+              mimeType: 'text/plain',
+              text: 'hello',
+            },
+          ],
+        },
+      ],
+    });
+    expect(request.messages[0]?.attachments).toHaveLength(2);
   });
 
   it('carries a per-turn provider override without touching session defaults', () => {
@@ -364,5 +401,30 @@ describe('builtin tools', () => {
 
   it('does not claim a host tool', () => {
     expect(isBuiltinToolName('restart_service')).toBe(false);
+  });
+});
+
+describe('attachment helpers', () => {
+  it('allowlists https and raster data URLs only', () => {
+    expect(isAllowedAttachmentUrl('https://cdn.example/a.png')).toBe(true);
+    expect(isAllowedAttachmentUrl('data:image/png;base64,abc')).toBe(true);
+    expect(isAllowedAttachmentUrl('http://cdn.example/a.png')).toBe(false);
+    expect(isAllowedAttachmentUrl('data:text/plain;base64,abc')).toBe(false);
+  });
+
+  it('builds stable chip tokens from kind and name', () => {
+    expect(attachmentToken('image', 'shot.png')).toBe('[image:shot.png]');
+    expect(attachmentToken('file', 'notes[1].txt')).toBe('[file:notes_1_.txt]');
+  });
+
+  it('accepts multimodal user content with an allowlisted image part', () => {
+    const parsed = ChatMessageSchema.parse({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what is this?' },
+        { type: 'image_url', image_url: { url: 'https://cdn.example/a.png' } },
+      ],
+    });
+    expect(textFromMessageContent(parsed.content)).toBe('what is this?');
   });
 });

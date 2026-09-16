@@ -60,6 +60,21 @@ function Row({ row }: { row: TranscriptRow }) {
         // biome-ignore lint/suspicious/noArrayIndexKey: fixed call sequence on a stored row
         <ToolRow key={`${tool.name}-${index}`} tool={tool} />
       ))}
+      {row.attachments !== undefined && row.attachments.length > 0 && (
+        <div data-harness="transcript-attachments">
+          {row.attachments.map((attachment) => (
+            <span
+              key={attachment.id}
+              data-harness="chip"
+              data-kind="attachment"
+              data-attachment-kind={attachment.kind}
+            >
+              <span data-harness="chip-icon">{attachment.kind === 'image' ? 'image' : 'file'}</span>
+              <span data-harness="chip-label">{attachment.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {(row.kind !== 'assistant' || row.text !== '') && (
         <div data-harness="bubble">
           <MarkdownView text={row.text} />

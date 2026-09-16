@@ -1,4 +1,5 @@
 import {
+  type ComposerAttachment,
   type ComposerChipRef,
   type ComposerValue,
   createChipElement,
@@ -6,6 +7,7 @@ import {
   mergeComposerRefs,
   paintComposer,
   serializeComposer,
+  toWireAttachments,
   toWireRefs,
 } from '@evu/harness-ui';
 import { describe, expect, it } from 'vitest';
@@ -67,6 +69,7 @@ describe('serializeComposer', () => {
       text: 'ping @service:api now',
       caret: 0,
       refs: [ref({ id: 'api', label: 'API Gateway', icon: 'box' })],
+      attachments: [],
     };
 
     paintComposer(root, value);
@@ -111,6 +114,7 @@ describe('mergeComposerRefs', () => {
       text: '🙂 and @service:api',
       caret: 0,
       refs: [ref({ id: 'api', label: 'API' })],
+      attachments: [],
     };
 
     const merged = mergeComposerRefs(serialized, previous);
@@ -128,7 +132,7 @@ describe('mergeComposerRefs', () => {
         asChip: false,
       },
     ];
-    const serialized: ComposerValue = { text: 'gone', caret: 0, refs: [] };
+    const serialized: ComposerValue = { text: 'gone', caret: 0, refs: [], attachments: [] };
     expect(mergeComposerRefs(serialized, previous)).toEqual([]);
   });
 });
@@ -152,5 +156,57 @@ describe('deleteChipBeforeCaret', () => {
     expect(root.querySelector('[data-harness="chip"]')).toBeNull();
     expect(serializeComposer(root).text).toBe(' x');
     root.remove();
+  });
+});
+
+describe('attachment chips', () => {
+  it('serializes attachment tokens into attachments[] separately from refs', () => {
+    const root = document.createElement('div');
+    const attachment: ComposerAttachment = {
+      id: 'a1',
+      kind: 'image',
+      name: 'shot.png',
+      mimeType: 'image/png',
+      url: 'data:image/png;base64,abc',
+      size: 3,
+      label: 'shot.png',
+      icon: 'image',
+      tone: 'accent',
+      asChip: true,
+      token: '[image:shot.png]',
+    };
+    const value: ComposerValue = {
+      text: 'see [image:shot.png] please',
+      caret: 0,
+      refs: [],
+      attachments: [attachment],
+    };
+    paintComposer(root, value);
+    const chip = root.querySelector('[data-kind="attachment"]');
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain('shot.png');
+
+    const serialized = serializeComposer(root);
+    expect(serialized.text).toBe('see [image:shot.png] please');
+    expect(serialized.refs).toEqual([]);
+    expect(serialized.attachments).toEqual([
+      expect.objectContaining({
+        id: 'a1',
+        kind: 'image',
+        name: 'shot.png',
+        url: 'data:image/png;base64,abc',
+        token: '[image:shot.png]',
+      }),
+    ]);
+    expect(toWireAttachments(serialized.attachments)).toEqual([
+      {
+        id: 'a1',
+        kind: 'image',
+        name: 'shot.png',
+        mimeType: 'image/png',
+        size: 3,
+        url: 'data:image/png;base64,abc',
+      },
+    ]);
   });
 });

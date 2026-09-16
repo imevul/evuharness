@@ -1,4 +1,5 @@
 import type { ChatMessage, ConnectionTestResult, ModelCatalogEntry } from '@evu/harness-protocol';
+import { textFromMessageContent } from '@evu/harness-protocol';
 import type { ProviderCompleteInput, ProviderEvent } from './openai-client.js';
 import type { StoredProviderProfile } from './settings-store.js';
 
@@ -85,7 +86,7 @@ export class FakeProvider implements ProviderAdapter {
 
 function echoEvents(messages: ChatMessage[]): ProviderEvent[] {
   const lastUser = [...messages].reverse().find((message) => message.role === 'user');
-  const text = lastUser?.content ?? '';
+  const text = lastUser === undefined ? '' : textFromMessageContent(lastUser.content);
   return [
     { kind: 'delta', text },
     { kind: 'usage', promptTokens: Math.max(1, Math.ceil(text.length / 4)), completionTokens: 1 },

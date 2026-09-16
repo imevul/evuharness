@@ -1,5 +1,6 @@
 import type {
   ApprovalDecision,
+  AttachmentRef,
   ChatModeId,
   ContextRef,
   PendingGates,
@@ -50,6 +51,7 @@ export interface HarnessSessionState {
   send: (input: {
     text: string;
     refs?: ContextRef[];
+    attachments?: AttachmentRef[];
     provider?: ProviderOverride;
   }) => Promise<void>;
   cancel: () => Promise<void>;
@@ -80,6 +82,7 @@ const EMPTY_GATES: PendingGates = {
 interface QueuedSend {
   text: string;
   refs: ContextRef[];
+  attachments: AttachmentRef[];
   provider?: ProviderOverride;
   /** Draft mode captured at the moment this message was queued. */
   mode: ChatModeId;
@@ -195,6 +198,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
               messages: batch.map((entry) => ({
                 text: entry.text,
                 refs: entry.refs,
+                attachments: entry.attachments,
               })),
               ...(last.provider === undefined ? {} : { provider: last.provider }),
             },
@@ -225,20 +229,34 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
   }, []);
 
   const send = useCallback(
-    async (input: { text: string; refs?: ContextRef[]; provider?: ProviderOverride }) => {
+    async (input: {
+      text: string;
+      refs?: ContextRef[];
+      attachments?: AttachmentRef[];
+      provider?: ProviderOverride;
+    }) => {
       // Read once, here: this is the send-time pin for this queued entry.
       const pinnedMode = draftMode;
+      const attachments = input.attachments ?? [];
 
       followUpQueue.current.push({
         text: input.text,
         refs: input.refs ?? [],
+        attachments,
         ...(input.provider === undefined ? {} : { provider: input.provider }),
         mode: pinnedMode,
       });
 
       // Echo the user's message immediately. The server persists it too, but waiting
       // for the round trip makes the composer feel like it dropped the message.
-      setTranscript((rows) => [...rows, { kind: 'user', text: input.text }]);
+      setTranscript((rows) => [
+        ...rows,
+        {
+          kind: 'user',
+          text: input.text,
+          ...(attachments.length === 0 ? {} : { attachments }),
+        },
+      ]);
 
       if (draining.current) {
         // Cancel the live turn as a follow-up; the drain loop picks up the queue

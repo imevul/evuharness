@@ -50,6 +50,9 @@ async function main(): Promise<void> {
     tools: demoTools(),
     skills,
     contextMenus: demoMenus(skills),
+    features: {
+      attachments: true,
+    },
     providers: [
       {
         id: 'local',

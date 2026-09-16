@@ -124,7 +124,7 @@ function formatSkillCatalog(skills: readonly SkillSummary[]): string {
  * detail would break exactly the small local models this is meant to support.
  */
 export function mergeIntoLeadingSystemMessage(
-  messages: { role: string; content: string }[],
+  messages: { role: string; content: string | unknown }[],
   addition: string,
 ): void {
   const trimmed = addition.trim();
@@ -133,7 +133,7 @@ export function mergeIntoLeadingSystemMessage(
   }
 
   const leading = messages[0];
-  if (leading !== undefined && leading.role === 'system') {
+  if (leading !== undefined && leading.role === 'system' && typeof leading.content === 'string') {
     leading.content = `${leading.content}${SECTION_SEPARATOR}${trimmed}`;
     return;
   }
