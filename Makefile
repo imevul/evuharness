@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev up down build lint typecheck test test-coverage smoke verify verify-dev \
+.PHONY: help install dev dev-native dev-native-stop up down build lint typecheck test test-coverage smoke verify verify-dev \
 	public-tree-scan docs-check release-guard internal-status fetch-internal docker-lint
 
 help: ## Show available targets
@@ -11,8 +11,14 @@ help: ## Show available targets
 install: ## Install workspace dependencies
 	pnpm install
 
-dev: ## Bring up the dev stack in the foreground
+dev: ## Bring up the dev stack in the foreground (Docker compose)
 	pnpm run dev
+
+dev-native: ## Start/restart the non-Docker dev stack (API 4301 + web 4300)
+	bash scripts/dev-native.sh restart
+
+dev-native-stop: ## Stop the non-Docker dev stack
+	bash scripts/dev-native.sh stop
 
 up: ## Bring up the dev stack detached
 	pnpm run up

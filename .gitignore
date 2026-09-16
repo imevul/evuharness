@@ -8,8 +8,9 @@
 !.env.example
 *.local
 
-# Local runtime state (SQLite stores, demo data)
+# Local runtime state (SQLite stores, demo data, native dev logs/pids)
 /data/
+/.data/
 *.sqlite
 *.sqlite3
 *.sqlite-journal

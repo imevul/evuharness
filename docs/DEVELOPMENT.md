@@ -105,6 +105,25 @@ Ports are in the 43xx range to avoid colliding with sibling projects on 42xx.
 State is a SQLite file under a named volume, so the first stack is two services
 with no external database.
 
+### Without Docker
+
+Where Docker is unavailable (for example a Cloud Agent VM), run the same two
+services directly with pnpm:
+
+```bash
+make dev-native       # start or restart the API (4301) and web app (4300)
+make dev-native-stop  # stop them
+```
+
+Open the web app at `http://localhost:4300`; it proxies `/api` to the API on
+`4301`. Logs and pids live under `.data/dev/` (gitignored). By default the API
+uses the configured OpenAI-compatible provider (set it in the web Settings panel
+or seed it with `EVUHARNESS_PROVIDER_BASE_URL` / `EVUHARNESS_PROVIDER_MODEL` /
+`EVUHARNESS_PROVIDER_API_KEY`). Export `EVUHARNESS_FAKE_PROVIDER=1` before
+`make dev-native` to use the in-process echo provider instead; it streams replies
+without a live model but overrides any real provider, so leave it unset when
+using your own.
+
 ## Tests
 
 Vitest runs from the repo root with workspace aliases resolved to package
