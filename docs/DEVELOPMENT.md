@@ -26,7 +26,7 @@ apps/
   api/        demo server process
   web/        demo web app
 deploy/       compose files
-docs/         tracked documentation
+docs/         tracked documentation (`INTEGRATION.md`, `DESIGN.md`, …)
 scripts/      guard rails and dev helpers
 ```
 

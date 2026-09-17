@@ -7,9 +7,9 @@ product.
 
 Bring your own tools and data sources; the harness handles the chat.
 
-> Status: early scaffold. The package boundaries, protocol, and context menu
-> engine are in place. The turn loop is specified and stubbed, not yet
-> implemented. See [`SPEC.md`](./SPEC.md) for the intended behavior.
+> Status: the harness, protocol, HTTP/SSE adapter, and React kit are usable.
+> Packages are not published to a registry; consume a checkout or a GitHub
+> Release. See [`docs/INTEGRATION.md`](./docs/INTEGRATION.md).
 
 ## What you get
 
@@ -68,6 +68,7 @@ providers without modifying the turn loop.
 
 ## Documentation
 
+- [`docs/INTEGRATION.md`](./docs/INTEGRATION.md) — consuming the harness in a host
 - [`SPEC.md`](./SPEC.md) — product boundary, behavior, and invariants
 - [`SECURITY.md`](./SECURITY.md) — security model
 - [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) — layout, toolchain, workflow

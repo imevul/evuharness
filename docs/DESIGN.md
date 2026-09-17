@@ -6,7 +6,8 @@ Conventions for `@evu/harness-ui` and the demo web app.
 
 **The UI kit is a set of parts, not a page.** A host should be able to mount just
 the composer, or just the transcript, or the whole chat surface. Anything that
-assumes a specific page layout belongs in the host app.
+assumes a specific page layout belongs in the host app. How those parts are
+chosen and wired is covered in [`INTEGRATION.md`](./INTEGRATION.md).
 
 **Protocol types are the only contract.** Components take and return protocol
 shapes. A component that needs a host-specific type is in the wrong package.

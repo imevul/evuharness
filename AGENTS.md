@@ -13,7 +13,8 @@ These instructions apply to the EvuHarness repository.
 4. Read the package `package.json` and `tsconfig.json` before editing a
    workspace.
 5. For UI work, read [`docs/DESIGN.md`](./docs/DESIGN.md).
-6. For security-sensitive work, read [`SECURITY.md`](./SECURITY.md).
+6. For host consumption, read [`docs/INTEGRATION.md`](./docs/INTEGRATION.md).
+7. For security-sensitive work, read [`SECURITY.md`](./SECURITY.md).
 
 ## Product Boundary
 

@@ -43,7 +43,8 @@ The runtime is presentation-free. Two consumption paths share one core:
   host in any language — or a terminal client — can drive it.
 
 Web is the primary target. The protocol exists so that additional surfaces are a
-presentation layer rather than a fork.
+presentation layer rather than a fork. How a host chooses and wires those
+surfaces is covered in [`docs/INTEGRATION.md`](./docs/INTEGRATION.md).
 
 ## Packages
 
