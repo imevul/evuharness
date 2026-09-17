@@ -115,7 +115,9 @@ composer, and tool gates. Session list, settings, and chrome stay yours.
 From `@evu/harness-ui`:
 
 - `useHarnessSession` — transcript, live turn, pending gates, send, cancel
-- `Transcript` — persisted rows plus the in-flight turn
+- `Transcript` — persisted rows plus the in-flight turn. Optional `afterRow`
+  / `afterTurn` for host chrome (cards, traces) that belongs to that turn
+  and should stay in the stick-to-bottom scroller.
 - `Composer` — contenteditable input, mode chip, context menus, optional attach
 - `GateStack` — tool approval, plan, ask-user, mode-switch
 

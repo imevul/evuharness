@@ -1,5 +1,5 @@
 import { BUILTIN_TOOL_NAMES, type ToolEvent, type TranscriptRow } from '@evu/harness-protocol';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { LiveTurn } from '../hooks/session-live.js';
 import {
   isNearBottom,
@@ -14,6 +14,10 @@ export interface TranscriptProps {
   /** The turn in flight, rendered after the persisted rows. Null between turns. */
   turn?: LiveTurn | null;
   className?: string;
+  /** Host chrome after a persisted row (cards for that turn). Stays in the scroller. */
+  afterRow?: (row: TranscriptRow, index: number) => ReactNode;
+  /** Host chrome after the in-flight turn. */
+  afterTurn?: (turn: LiveTurn) => ReactNode;
 }
 
 /**
@@ -28,7 +32,13 @@ export interface TranscriptProps {
  * thinking, progress notes, and tools into one "Worked for" disclosure. The latest
  * turn and the live turn keep that disclosure open; older turns stay collapsed.
  */
-export function Transcript({ rows, turn = null, className }: TranscriptProps) {
+export function Transcript({
+  rows,
+  turn = null,
+  className,
+  afterRow,
+  afterTurn,
+}: TranscriptProps) {
   const latestAssistant = latestAssistantIndex(rows, turn !== null);
   const { scrollerRef, showJump, jumpToLatest } = useStickToBottom(rows, turn);
 
@@ -49,6 +59,7 @@ export function Transcript({ rows, turn = null, className }: TranscriptProps) {
               row={row}
               workOpen={index === latestAssistant}
               durationFallbackStart={previousUserCreatedAt(rows, index)}
+              after={afterRow?.(row, index)}
             />
           ))}
 
@@ -59,6 +70,7 @@ export function Transcript({ rows, turn = null, className }: TranscriptProps) {
               )}
               {turn.content !== '' && <div data-harness="bubble">{turn.content}</div>}
               <span data-harness="phase">{turn.phase}</span>
+              {afterTurn?.(turn)}
             </div>
           )}
         </div>
@@ -230,10 +242,12 @@ function Row({
   row,
   workOpen,
   durationFallbackStart,
+  after,
 }: {
   row: TranscriptRow;
   workOpen: boolean;
   durationFallbackStart: string | undefined;
+  after?: ReactNode;
 }) {
   return (
     <div
@@ -269,6 +283,7 @@ function Row({
           <MarkdownView text={row.text} />
         </div>
       )}
+      {after}
     </div>
   );
 }

@@ -94,6 +94,21 @@ describe('Transcript scroll-to-latest', () => {
     expect(scrollTop).toBe(800);
   });
 
+  it('renders host afterRow chrome on that persisted row', () => {
+    const { container } = render(
+      <Transcript
+        rows={[
+          { kind: 'assistant', text: 'hi' },
+          { kind: 'user', text: 'follow-up' },
+        ]}
+        afterRow={(row) => (row.kind === 'assistant' ? <p>cards</p> : null)}
+      />,
+    );
+    const rows = container.querySelectorAll('[data-harness="transcript-row"]');
+    expect(rows[0]?.textContent).toContain('cards');
+    expect(rows[1]?.textContent).not.toContain('cards');
+  });
+
   it('keeps the jump control hidden while already at the bottom', () => {
     const { container } = render(<Transcript rows={[{ kind: 'assistant', text: 'hi' }]} />);
     const scroller = container.querySelector('[data-harness="transcript"]');
