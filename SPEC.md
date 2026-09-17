@@ -120,9 +120,12 @@ turn persistence still writes only turn-owned fields via `TurnPatch`, so a
 mid-turn set-mode cannot be clobbered by a later save.
 
 A session status bar is always-visible chrome for the active provider, the
-active model, and context use. It is not a settings page. The context fill is
-`lastPromptTokens / maxContextTokens` for the active model. There is no donut
-when the max is unknown — the harness does not invent a window.
+active model, and context use. The provider readout may also be the control that
+changes it: picking from it sets the session's override, choosing among profiles
+that already exist. That does not make it a settings page — it never creates,
+edits, or deletes a profile. The context fill is `lastPromptTokens /
+maxContextTokens` for the active model. There is no donut when the max is
+unknown — the harness does not invent a window.
 
 ## Chat modes and the send-time pin
 

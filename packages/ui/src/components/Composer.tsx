@@ -7,6 +7,7 @@ import type {
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -58,6 +59,12 @@ export interface ComposerProps {
    * Mirrors harness `features.attachments` (default off).
    */
   attachmentsEnabled?: boolean;
+  /**
+   * Contents of the attach button. A host passing an icon keeps the button
+   * labelled either way: the accessible name comes from `aria-label`, not from
+   * whatever is rendered here.
+   */
+  attachLabel?: ReactNode;
 }
 
 const EMPTY: ComposerValue = { text: '', caret: 0, refs: [], attachments: [] };
@@ -93,6 +100,7 @@ export function Composer(props: ComposerProps) {
     className,
     menuDebounceMs,
     attachmentsEnabled = false,
+    attachLabel = 'Attach',
   } = props;
 
   const [value, setValue] = useState<ComposerValue>(EMPTY);
@@ -320,7 +328,7 @@ export function Composer(props: ComposerProps) {
               disabled={disabled}
               aria-label="Attach files"
             >
-              Attach
+              {attachLabel}
             </button>
           </>
         ) : null}

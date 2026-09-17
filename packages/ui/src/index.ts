@@ -28,11 +28,21 @@ export {
   MarkdownView,
   type MarkdownViewProps,
 } from './components/MarkdownView.js';
+export { Modal, type ModalProps } from './components/Modal.js';
+export {
+  ModelPickerField,
+  type ModelPickerFieldProps,
+} from './components/ModelPickerField.js';
 export { type PromptPreviewProps, PromptPreviewView } from './components/PromptPreview.js';
 export {
   PromptSettings,
   type PromptSettingsProps,
 } from './components/PromptSettings.js';
+export {
+  ProviderFormModal,
+  type ProviderFormModalProps,
+} from './components/ProviderFormModal.js';
+export { ProviderMenu, type ProviderMenuProps } from './components/ProviderMenu.js';
 export {
   ProviderOverrideControls,
   type ProviderOverrideControlsProps,
@@ -64,6 +74,7 @@ export {
   toWireAttachments,
   toWireRefs,
 } from './composer/serialize.js';
+export { FOCUSABLE_SELECTOR, focusableWithin, trapTabKey } from './focus-trap.js';
 export {
   type ContextMenuFetcher,
   type ContextMenuState,
@@ -81,8 +92,9 @@ export {
   type UseHarnessSessionOptions,
   useHarnessSession,
 } from './hooks/use-harness-session.js';
-export { expandKNotation, parseKNotation } from './k-notation.js';
+export { expandKNotation, formatContextWindow, parseKNotation } from './k-notation.js';
 export {
   mergeProviderOverrides,
   resolveActiveProviderSnapshot,
+  resolveModelContextWindow,
 } from './provider-override.js';

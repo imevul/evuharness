@@ -1,5 +1,13 @@
 import type { ToolDefinition } from '@evu/harness-core';
 
+export interface DemoToolsOptions {
+  /**
+   * Include the no-op `echo` tool. Only the in-process FakeProvider should see
+   * it: a live model treats "repeat this text" as something to call.
+   */
+  includeEcho?: boolean;
+}
+
 /**
  * Tools for the demo, exercising the annotations the gates depend on.
  *
@@ -7,11 +15,13 @@ import type { ToolDefinition } from '@evu/harness-core';
  * tool running without a gate, a mutating tool opening one, and a mode excluding a
  * tool entirely — the three behaviors that are hard to believe from documentation.
  */
-export function demoTools(): ToolDefinition[] {
+export function demoTools(options: DemoToolsOptions = {}): ToolDefinition[] {
   const notes = new Map<string, string>();
 
-  return [
-    {
+  const tools: ToolDefinition[] = [];
+
+  if (options.includeEcho === true) {
+    tools.push({
       name: 'echo',
       description: 'Return the given text unchanged. Useful for checking the loop end to end.',
       parameters: {
@@ -24,7 +34,10 @@ export function demoTools(): ToolDefinition[] {
       mutates: false,
       approval: 'always_allow',
       handler: (args) => String(args.text ?? ''),
-    },
+    });
+  }
+
+  tools.push(
     {
       name: 'list_notes',
       description: 'List the keys of notes stored in this demo process.',
@@ -112,5 +125,7 @@ export function demoTools(): ToolDefinition[] {
       builtin: true,
       handler: () => 'ask_user is handled by the turn loop; this handler should not run.',
     },
-  ];
+  );
+
+  return tools;
 }

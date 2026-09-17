@@ -103,6 +103,77 @@ describe('PromptSettings', () => {
     });
   });
 
+  it('gates Save and Reset on a real edit, and marks the preview as stale', async () => {
+    const settings = baseSettings();
+    const loadPreview = vi.fn(async (mode: string) => previewFor(mode, `mode=${mode}`));
+
+    render(
+      <PromptSettings
+        settings={settings}
+        onChange={async () => undefined}
+        loadPreview={loadPreview}
+      />,
+    );
+
+    await waitFor(() => expect(loadPreview).toHaveBeenCalledWith('ask'));
+
+    const save = screen.getByRole('button', { name: 'Save prompts' }) as HTMLButtonElement;
+    const reset = screen.getByRole('button', { name: 'Reset' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(reset.disabled).toBe(true);
+    expect(document.querySelector('[data-harness="prompt-preview-stale"]')).toBeNull();
+
+    const field = screen.getByLabelText('Global prompt');
+    fireEvent.change(field, { target: { value: 'Edited.' } });
+    expect(save.disabled).toBe(false);
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(document.querySelector('[data-harness="prompt-preview-stale"]')).not.toBeNull();
+
+    fireEvent.click(reset);
+    expect((field as HTMLTextAreaElement).value).toBe('You are helpful.');
+    expect(save.disabled).toBe(true);
+  });
+
+  it('marks modes that already carry text', async () => {
+    render(
+      <PromptSettings
+        settings={baseSettings()}
+        onChange={async () => undefined}
+        loadPreview={async (mode) => previewFor(mode, 'x')}
+      />,
+    );
+
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>('[data-harness="prompt-mode"] option'),
+    ).map((option) => option.textContent);
+    expect(options).toEqual(['ask (set)', 'plan', 'agent']);
+  });
+
+  it('switches the preview between sections and the assembled text', async () => {
+    render(
+      <PromptSettings
+        settings={baseSettings()}
+        onChange={async () => undefined}
+        loadPreview={async (mode) => ({
+          mode,
+          sections: [
+            { id: 'global', label: 'Global', text: 'Section text.', dynamic: false },
+            { id: 'now', label: 'Date', text: 'Today.', dynamic: true },
+          ],
+          text: 'Section text.\n\nToday.',
+        })}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('Section text.')).toBeTruthy());
+    expect(screen.getByText('dynamic')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Assembled' }));
+    const assembled = document.querySelector('[data-harness="prompt-assembled"] pre');
+    expect(assembled?.textContent).toBe('Section text.\n\nToday.');
+    expect(screen.queryByText('dynamic')).toBeNull();
+  });
+
   it('reloads preview when the mode selector changes', async () => {
     const settings = baseSettings();
     const loadPreview = vi.fn(async (mode: string) => previewFor(mode, `mode=${mode}`));

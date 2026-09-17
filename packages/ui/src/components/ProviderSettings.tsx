@@ -4,10 +4,12 @@ import type {
   HarnessSettingsUpdate,
   ModelCatalogEntry,
   ProviderProfile,
-  ProviderProfileWrite,
 } from '@evu/harness-protocol';
-import { useEffect, useState } from 'react';
-import { expandKNotation, parseKNotation } from '../k-notation.js';
+import { useState } from 'react';
+import { formatContextWindow } from '../k-notation.js';
+import { resolveModelContextWindow } from '../provider-override.js';
+import { Modal } from './Modal.js';
+import { ProviderFormModal } from './ProviderFormModal.js';
 
 export interface ProviderSettingsProps {
   settings: HarnessSettings;
@@ -17,341 +19,209 @@ export interface ProviderSettingsProps {
   className?: string;
 }
 
-interface Draft {
-  id: string;
-  label: string;
-  baseUrl: string;
-  model: string;
-  apiKey: string;
-}
+/** Null id means "creating". */
+type Editing = { id: string | null };
 
-function draftFrom(profile: ProviderProfile | null): Draft {
-  return {
-    id: profile?.id ?? crypto.randomUUID(),
-    label: profile?.label ?? '',
-    baseUrl: profile?.baseUrl ?? 'http://127.0.0.1:8080/v1',
-    model: profile?.model ?? 'local-model',
-    apiKey: '',
-  };
+function displayName(profile: ProviderProfile): string {
+  return profile.label ?? profile.id;
 }
 
 /**
- * Named provider profiles: create, edit, test, and pick the active one.
+ * Named provider profiles: a list of what exists, with create, edit, delete, and
+ * which one is active.
  *
- * The API key field is write-only. When a key is already stored the input stays
- * empty and a placeholder says so; an empty save leaves the stored key alone.
+ * The list is the screen; editing happens in a dialog. One always-open form cannot
+ * say which profile is active without competing with the form's own idea of
+ * "selected", and the distinction between "the row I am looking at" and "the
+ * profile every new turn will use" is the one thing this screen has to get right.
  */
 export function ProviderSettings(props: ProviderSettingsProps) {
   const { settings, onChange, onTest, onListModels, className } = props;
-  const [selectedId, setSelectedId] = useState<string | null>(
-    settings.activeProviderId ?? settings.providers[0]?.id ?? null,
-  );
-  const selected = settings.providers.find((profile) => profile.id === selectedId) ?? null;
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(selected));
-  const [creating, setCreating] = useState(false);
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
-  const [models, setModels] = useState<ModelCatalogEntry[]>([]);
-  const [overrideText, setOverrideText] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [deleting, setDeleting] = useState<ProviderProfile | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!creating) {
-      setDraft(draftFrom(selected));
-      setTestResult(null);
-      setModels((selected?.models ?? []).map((id) => ({ id })));
-      setOverrideText(
-        selected?.modelContextWindowOverrides[selected.model] === undefined
-          ? ''
-          : String(selected.modelContextWindowOverrides[selected.model]),
-      );
-    }
-  }, [selected, creating]);
+  const editingProfile =
+    editing?.id === undefined || editing.id === null
+      ? null
+      : (settings.providers.find((profile) => profile.id === editing.id) ?? null);
 
-  useEffect(() => {
-    if (creating || selected === null) return;
-    const override = selected.modelContextWindowOverrides[draft.model];
-    setOverrideText(override === undefined ? '' : String(override));
-  }, [creating, selected, draft.model]);
-
-  const overridesFor = (model: string, text: string): Record<string, number | null> => {
-    const current = { ...(selected?.modelContextWindowOverrides ?? {}) };
-    const parsed = parseKNotation(text);
-    if (parsed === null) {
-      return { ...current, [model]: null };
-    }
-    if (parsed === undefined) {
-      return current;
-    }
-    return { ...current, [model]: parsed };
-  };
-
-  const save = async (extra: Partial<ProviderProfileWrite> = {}, activate = false) => {
-    setBusy('save');
+  const run = async (update: HarnessSettingsUpdate) => {
+    setBusy(true);
     setError(null);
-    const expandedOverride = expandKNotation(overrideText);
-    setOverrideText(expandedOverride);
     try {
-      const write: ProviderProfileWrite = {
-        id: draft.id,
-        baseUrl: draft.baseUrl,
-        model: extra.model ?? draft.model,
-        ...(draft.label === '' ? {} : { label: draft.label }),
-        ...(draft.apiKey === '' ? {} : { apiKey: draft.apiKey }),
-        ...(extra.modelContextWindowOverrides === undefined && extra.model === undefined
-          ? { modelContextWindowOverrides: overridesFor(draft.model, expandedOverride) }
-          : {}),
-        ...extra,
-      };
-      await onChange({
-        providers: [write],
-        ...(activate || settings.activeProviderId === null ? { activeProviderId: draft.id } : {}),
-      });
-      setCreating(false);
-      setSelectedId(draft.id);
-      setDraft((current) => ({ ...current, apiKey: '' }));
+      await onChange(update);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
+  };
+
+  /**
+   * List models, and remember the ids on the profile.
+   *
+   * The override controls elsewhere offer `profile.models` as their model list, so
+   * a browse here is also how that list stays current.
+   */
+  const listModelsFor = (profile: ProviderProfile) => async () => {
+    const models = await onListModels(profile.id);
+    const ids = models.map((entry) => entry.id);
+    const unchanged =
+      ids.length === profile.models.length &&
+      ids.every((id, index) => profile.models[index] === id);
+
+    if (ids.length > 0 && !unchanged) {
+      await onChange({
+        providers: [
+          { id: profile.id, baseUrl: profile.baseUrl, model: profile.model, models: ids },
+        ],
+      });
+    }
+    return models;
   };
 
   return (
     <section className={className} data-harness="provider-settings">
       <header data-harness="provider-settings-header">
-        <h2>Providers</h2>
+        <div>
+          <h2>Providers</h2>
+          <p data-harness="provider-settings-hint">
+            The active profile is what a new turn uses unless a session or send overrides it.
+          </p>
+        </div>
         <button
           type="button"
+          data-variant="primary"
           data-harness="provider-new"
-          onClick={() => {
-            setCreating(true);
-            setSelectedId(null);
-            setDraft(draftFrom(null));
-            setTestResult(null);
-            setModels([]);
-            setOverrideText('');
-          }}
+          onClick={() => setEditing({ id: null })}
         >
           Add provider
         </button>
       </header>
 
-      <ul data-harness="provider-list">
-        {settings.providers.map((profile) => (
-          <li
-            key={profile.id}
-            data-harness="provider-row"
-            data-active={profile.id === settings.activeProviderId}
-            data-selected={profile.id === selectedId}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setCreating(false);
-                setSelectedId(profile.id);
-              }}
-            >
-              <span>{profile.label ?? profile.id}</span>
-              <span data-harness="provider-model">{profile.model}</span>
-            </button>
-            {profile.id === settings.activeProviderId && (
-              <span data-harness="provider-active-badge">active</span>
-            )}
-          </li>
-        ))}
-      </ul>
+      {settings.providers.length === 0 ? (
+        <p data-harness="provider-empty">
+          No provider yet. Add one to point the harness at an OpenAI-compatible endpoint.
+        </p>
+      ) : (
+        <ul data-harness="provider-list">
+          {settings.providers.map((profile) => {
+            const active = profile.id === settings.activeProviderId;
+            const window = resolveModelContextWindow(profile, profile.model);
 
-      <form
-        data-harness="provider-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save();
-        }}
-      >
-        <label>
-          Label
-          <input
-            value={draft.label}
-            onChange={(event) => setDraft({ ...draft, label: event.target.value })}
-          />
-        </label>
-        <label>
-          Base URL
-          <input
-            value={draft.baseUrl}
-            required
-            onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-          />
-        </label>
-        <label>
-          Model
-          <input
-            value={draft.model}
-            required
-            list="harness-provider-models"
-            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-          />
-        </label>
-        <datalist id="harness-provider-models">
-          {models.map((model) => (
-            <option key={model.id} value={model.id} />
-          ))}
-        </datalist>
-        <label>
-          Max context tokens
-          <input
-            type="text"
-            inputMode="decimal"
-            spellCheck={false}
-            autoComplete="off"
-            value={overrideText}
-            placeholder={catalogWindowLabel(selected, draft.model, models)}
-            onChange={(event) => setOverrideText(event.target.value)}
-            onBlur={() => setOverrideText(expandKNotation(overrideText))}
-          />
-        </label>
-        <label>
-          API key
-          <input
-            type="password"
-            value={draft.apiKey}
-            autoComplete="off"
-            placeholder={selected?.hasApiKey === true ? 'Stored — leave blank to keep' : 'Optional'}
-            onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-          />
-        </label>
+            return (
+              <li key={profile.id} data-harness="provider-row" data-active={active}>
+                <div data-harness="provider-row-main">
+                  <span data-harness="provider-label">{displayName(profile)}</span>
+                  <span data-harness="provider-model">{profile.model}</span>
+                  <span data-harness="provider-base-url">{profile.baseUrl}</span>
+                </div>
 
-        <div data-harness="provider-actions">
-          <button type="submit" disabled={busy !== null}>
-            Save
-          </button>
-          {selected !== null && selected.id !== settings.activeProviderId && (
-            <button
-              type="button"
-              data-harness="provider-activate"
-              disabled={busy !== null}
-              onClick={() => void onChange({ activeProviderId: selected.id })}
-            >
-              Use this provider
-            </button>
-          )}
-          {selected !== null && (
-            <button
-              type="button"
-              data-harness="provider-delete"
-              disabled={busy !== null}
-              onClick={() => {
-                void onChange({ removeProviderIds: [selected.id] });
-                setSelectedId(settings.providers.find((p) => p.id !== selected.id)?.id ?? null);
-              }}
-            >
-              Delete
-            </button>
-          )}
-          {selected?.hasApiKey === true && (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => void save({ apiKey: null })}
-            >
-              Clear key
-            </button>
-          )}
-        </div>
+                <div data-harness="provider-row-meta">
+                  {window !== undefined && (
+                    <span data-harness="provider-window">{formatContextWindow(window)} ctx</span>
+                  )}
+                  {profile.hasApiKey && <span data-harness="provider-key">key set</span>}
+                  {active ? (
+                    <span data-harness="provider-active-badge">Active</span>
+                  ) : (
+                    <button
+                      type="button"
+                      data-harness="provider-activate"
+                      disabled={busy}
+                      onClick={() => void run({ activeProviderId: profile.id })}
+                    >
+                      Use
+                    </button>
+                  )}
+                </div>
 
-        {selected !== null && (
-          <div data-harness="provider-probe">
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => {
-                setBusy('test');
-                setError(null);
-                void onTest(selected.id)
-                  .then((result) => {
-                    setTestResult(result);
-                  })
-                  .catch((cause: unknown) => {
-                    setError(cause instanceof Error ? cause.message : String(cause));
-                  })
-                  .finally(() => setBusy(null));
-              }}
-            >
-              Test connection
-            </button>
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => {
-                setBusy('models');
-                setError(null);
-                void onListModels(selected.id)
-                  .then((listed) => {
-                    setModels(listed);
-                    return onChange({
-                      providers: [
-                        {
-                          id: selected.id,
-                          baseUrl: selected.baseUrl,
-                          model: selected.model,
-                          models: listed.map((entry) => entry.id),
-                        },
-                      ],
-                    });
-                  })
-                  .catch((cause: unknown) => {
-                    setError(cause instanceof Error ? cause.message : String(cause));
-                  })
-                  .finally(() => setBusy(null));
-              }}
-            >
-              Refresh models
-            </button>
-          </div>
-        )}
-
-        {models.length > 0 && (
-          <ul data-harness="provider-models">
-            {models.map((model) => (
-              <li key={model.id}>
-                <button
-                  type="button"
-                  data-selected={model.id === draft.model}
-                  onClick={() => {
-                    setDraft({ ...draft, model: model.id });
-                    if (!creating) {
-                      void save({ model: model.id });
-                    }
-                  }}
-                >
-                  {model.id}
-                </button>
+                <div data-harness="provider-row-actions">
+                  <button
+                    type="button"
+                    data-variant="ghost"
+                    data-harness="provider-edit"
+                    aria-label={`Edit ${displayName(profile)}`}
+                    onClick={() => setEditing({ id: profile.id })}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    data-variant="danger"
+                    data-harness="provider-delete"
+                    aria-label={`Delete ${displayName(profile)}`}
+                    disabled={busy}
+                    onClick={() => setDeleting(profile)}
+                  >
+                    ✕
+                  </button>
+                </div>
               </li>
-            ))}
-          </ul>
-        )}
+            );
+          })}
+        </ul>
+      )}
 
-        {testResult !== null && (
-          <p data-harness="provider-test" data-ok={testResult.ok}>
-            {testResult.ok ? 'Connected' : 'Failed'}
-            {testResult.message !== undefined ? ` — ${testResult.message}` : ''}
-            {testResult.latencyMs !== undefined ? ` (${testResult.latencyMs}ms)` : ''}
+      {error !== null && <p data-harness="provider-error">{error}</p>}
+
+      {editing !== null && (
+        <ProviderFormModal
+          key={editing.id ?? 'new'}
+          profile={editingProfile}
+          activateOnSave={settings.activeProviderId === null}
+          onClose={() => setEditing(null)}
+          onSubmit={async (write) => {
+            await onChange({
+              providers: [write],
+              ...(settings.activeProviderId === null ? { activeProviderId: write.id } : {}),
+            });
+            setEditing(null);
+          }}
+          {...(editingProfile === null
+            ? {}
+            : {
+                onTest: () => onTest(editingProfile.id),
+                onListModels: listModelsFor(editingProfile),
+              })}
+        />
+      )}
+
+      {deleting !== null && (
+        <Modal
+          open
+          onClose={() => setDeleting(null)}
+          title={`Delete ${displayName(deleting)}?`}
+          footer={
+            <>
+              <button type="button" onClick={() => setDeleting(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-variant="danger"
+                data-harness="provider-delete-confirm"
+                disabled={busy}
+                onClick={() => {
+                  const id = deleting.id;
+                  setDeleting(null);
+                  void run({ removeProviderIds: [id] });
+                }}
+              >
+                Delete provider
+              </button>
+            </>
+          }
+        >
+          <p>
+            The profile and its stored key are removed. Sessions pinned to it fall back to the
+            active provider.
           </p>
-        )}
-        {error !== null && <p data-harness="provider-error">{error}</p>}
-      </form>
+        </Modal>
+      )}
     </section>
   );
-}
-
-function catalogWindowLabel(
-  profile: ProviderProfile | null,
-  model: string,
-  listed: ModelCatalogEntry[],
-): string {
-  const catalog =
-    profile?.modelContextWindows[model] ??
-    listed.find((entry) => entry.id === model)?.contextWindow;
-  return catalog === undefined ? 'Use catalog' : `Catalog: ${catalog.toLocaleString()}`;
 }

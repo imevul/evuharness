@@ -1,4 +1,4 @@
-import { expandKNotation, parseKNotation } from '@evu/harness-ui';
+import { expandKNotation, formatContextWindow, parseKNotation } from '@evu/harness-ui';
 import { describe, expect, it } from 'vitest';
 
 describe('parseKNotation', () => {
@@ -45,5 +45,30 @@ describe('expandKNotation', () => {
     expect(expandKNotation('  8k ')).toBe('8000');
     expect(expandKNotation('')).toBe('');
     expect(expandKNotation('nope')).toBe('nope');
+  });
+});
+
+describe('formatContextWindow', () => {
+  it('uses IEC only when the value is not a clean decimal multiple', () => {
+    expect(formatContextWindow(32_768)).toBe('32Ki');
+    expect(formatContextWindow(8_192)).toBe('8Ki');
+    expect(formatContextWindow(1_048_576)).toBe('1Mi');
+  });
+
+  it('prefers the decimal reading when both are exact', () => {
+    // 128000 is 125Ki as well, which is exact and unreadable.
+    expect(formatContextWindow(128_000)).toBe('128K');
+    expect(formatContextWindow(1_000_000)).toBe('1M');
+  });
+
+  it('falls back to a grouped integer', () => {
+    expect(formatContextWindow(1_234)).toBe((1_234).toLocaleString());
+    expect(formatContextWindow(7)).toBe('7');
+  });
+
+  it('round-trips through the parser', () => {
+    for (const value of [4_096, 32_768, 128_000, 200_000, 1_048_576]) {
+      expect(parseKNotation(formatContextWindow(value))).toBe(value);
+    }
   });
 });

@@ -51,3 +51,33 @@ export function expandKNotation(raw: string): string {
   if (parsed === null) return '';
   return String(parsed);
 }
+
+/**
+ * Units for the reverse direction, largest first.
+ *
+ * Decimal precedes binary at each magnitude because a value divisible by both reads
+ * better decimally: 128000 is `128K`, not the equally exact `125Ki`.
+ */
+const REVERSE_UNITS: ReadonlyArray<readonly [string, number]> = [
+  ['G', 1_000_000_000],
+  ['Gi', 1_024 * 1_024 * 1_024],
+  ['M', 1_000_000],
+  ['Mi', 1_024 * 1_024],
+  ['K', 1_000],
+  ['Ki', 1_024],
+];
+
+/**
+ * Render an integer as the shortest exact k-notation, for display beside an input.
+ *
+ * Only exact divisions are used, so the result always parses back to the same
+ * integer: `32768` is `32Ki`, `128000` is `128K`, and `1234` stays `1,234`.
+ */
+export function formatContextWindow(value: number): string {
+  if (!Number.isInteger(value) || value <= 0) return String(value);
+
+  for (const [suffix, multiplier] of REVERSE_UNITS) {
+    if (value % multiplier === 0) return `${value / multiplier}${suffix}`;
+  }
+  return value.toLocaleString();
+}

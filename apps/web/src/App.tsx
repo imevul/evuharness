@@ -2,7 +2,6 @@ import type {
   ChatModeId,
   ContextMenuDescriptor,
   HarnessSettings,
-  ProviderOverride,
   SessionSummary,
   StatusResponse,
   ToolCatalogEntry,
@@ -12,7 +11,6 @@ import {
   GateStack,
   HarnessClient,
   PromptSettings,
-  ProviderOverrideControls,
   ProviderSettings,
   resolveActiveProviderSnapshot,
   SessionSidebar,
@@ -49,11 +47,6 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [screen, setScreen] = useState<'chat' | 'settings'>('chat');
   const [bootError, setBootError] = useState<string | null>(null);
-  /**
-   * Optional per-send override. Local draft only — mirrors draft mode ownership
-   * so changing it mid-turn does not touch the session or settings profiles.
-   */
-  const [draftProvider, setDraftProvider] = useState<ProviderOverride | null>(null);
 
   const refreshSessions = useCallback(async () => {
     const response = await client.listSessions();
@@ -89,15 +82,13 @@ export function App() {
         base: status?.activeProvider ?? null,
         providers: settings?.providers ?? [],
         session: session.session?.provider,
-        turn: draftProvider,
       }),
-    [status?.activeProvider, settings?.providers, session.session?.provider, draftProvider],
+    [status?.activeProvider, settings?.providers, session.session?.provider],
   );
 
   const createSession = useCallback(async () => {
     const created = await client.createSession({ mode: session.draftMode });
     await refreshSessions();
-    setDraftProvider(null);
     setActiveId(created.id);
   }, [client, session.draftMode, refreshSessions]);
 
@@ -118,19 +109,15 @@ export function App() {
 
   const send = useCallback(
     async (value: { text: string; refs: { menu: string; path: string[]; id: string }[] }) => {
-      await session.send({
-        text: value.text,
-        refs: value.refs,
-        ...(draftProvider === null ? {} : { provider: draftProvider }),
-      });
-      // Per-send override is one-shot: clear after queueing so the next send
-      // falls back to the session preference unless the user sets it again.
-      setDraftProvider(null);
+      // No per-send override here on purpose. `ChatRequest.provider` still exists for
+      // hosts that want one, but the demo offers a single session-scoped choice: two
+      // override scopes on one screen were more chrome than the distinction earned.
+      await session.send({ text: value.text, refs: value.refs });
       // Titles are derived from the first message, so the sidebar is stale until the
       // turn finishes.
       await refreshSessions();
     },
-    [session, draftProvider, refreshSessions],
+    [session, refreshSessions],
   );
 
   if (bootError !== null) {
@@ -145,6 +132,26 @@ export function App() {
     );
   }
 
+  // Settings takes the whole window rather than the main column: it has its own
+  // sidebar of sections, and two sidebars side by side would compete. The session
+  // hook above stays mounted across the switch, so a turn keeps streaming.
+  if (screen === 'settings') {
+    return (
+      <SettingsScreen
+        client={client}
+        onBack={() => {
+          setScreen('chat');
+          void Promise.all([client.status(), client.getSettings()]).then(
+            ([statusResponse, settingsResponse]) => {
+              setStatus(statusResponse);
+              setSettings(settingsResponse);
+            },
+          );
+        }}
+      />
+    );
+  }
+
   return (
     <div className="layout">
       <SessionSidebar
@@ -152,7 +159,6 @@ export function App() {
         sessions={sessions}
         activeId={activeId}
         onSelect={(id) => {
-          setDraftProvider(null);
           setActiveId(id);
           setScreen('chat');
         }}
@@ -160,119 +166,115 @@ export function App() {
         onDelete={(id) => void deleteSession(id)}
       />
 
-      {screen === 'settings' ? (
-        <SettingsScreen
-          client={client}
-          onBack={() => {
-            setScreen('chat');
-            void Promise.all([client.status(), client.getSettings()]).then(
-              ([statusResponse, settingsResponse]) => {
-                setStatus(statusResponse);
-                setSettings(settingsResponse);
-              },
-            );
-          }}
+      <main className="chat">
+        <header className="chat-header">
+          <span>{session.session?.title ?? 'No session'}</span>
+          <span className="chat-header-actions">
+            {status !== null && !status.providerConfigured && (
+              <span className="warn">No provider configured</span>
+            )}
+            <button type="button" onClick={() => setScreen('settings')}>
+              Settings
+            </button>
+          </span>
+        </header>
+
+        <Transcript className="chat-transcript" rows={session.transcript} turn={session.turn} />
+
+        {session.error !== null && <div className="error">{session.error}</div>}
+
+        {session.pending !== null && (
+          <GateStack
+            className="chat-gates"
+            pending={session.pending}
+            workspaceScoped={session.session?.workspaceId !== undefined}
+            onToolDecision={(approvalId, decision) => {
+              void session.decideToolApproval(approvalId, decision);
+            }}
+            onPlanDecision={(approve) => {
+              if (activeId === null) return;
+              void (approve ? client.approvePlan(activeId) : client.discardPlan(activeId));
+            }}
+            onModeSwitchDecision={(approve) => {
+              if (activeId !== null) void client.decideModeSwitch(activeId, { approve });
+            }}
+            onAskUserAnswer={(askId, answers) => {
+              if (activeId !== null) void client.answerAskUser(activeId, askId, { answers });
+            }}
+          />
+        )}
+
+        <Composer
+          className="chat-composer"
+          menus={menus}
+          fetchItems={fetchItems}
+          modes={modes}
+          mode={session.draftMode}
+          // Only the local draft changes here. Persisting the session default is a
+          // separate, explicit call, which is what keeps a mid-turn mode change from
+          // touching the turn.
+          onModeChange={session.setDraftMode}
+          onSend={(value) => void send(value)}
+          onCancel={() => void session.cancel()}
+          turnInProgress={session.turn !== null}
+          disabled={activeId === null}
+          attachmentsEnabled={status?.features?.attachments === true}
+          attachLabel={<PaperclipIcon />}
+          placeholder={activeId === null ? 'Create a chat to begin' : 'Send a message…'}
         />
-      ) : (
-        <main className="chat">
-          <header className="chat-header">
-            <span>{session.session?.title ?? 'No session'}</span>
-            <span className="chat-header-actions">
-              {status !== null && !status.providerConfigured && (
-                <span className="warn">No provider configured</span>
-              )}
-              <button type="button" onClick={() => setScreen('settings')}>
-                Settings
-              </button>
-            </span>
-          </header>
 
-          <Transcript className="chat-transcript" rows={session.transcript} turn={session.turn} />
-
-          {session.error !== null && <div className="error">{session.error}</div>}
-
-          {session.pending !== null && (
-            <GateStack
-              className="chat-gates"
-              pending={session.pending}
-              workspaceScoped={session.session?.workspaceId !== undefined}
-              onToolDecision={(approvalId, decision) => {
-                void session.decideToolApproval(approvalId, decision);
-              }}
-              onPlanDecision={(approve) => {
-                if (activeId === null) return;
-                void (approve ? client.approvePlan(activeId) : client.discardPlan(activeId));
-              }}
-              onModeSwitchDecision={(approve) => {
-                if (activeId !== null) void client.decideModeSwitch(activeId, { approve });
-              }}
-              onAskUserAnswer={(askId, answers) => {
-                if (activeId !== null) void client.answerAskUser(activeId, askId, { answers });
-              }}
-            />
-          )}
-
-          {(settings?.providers.length ?? 0) > 0 && activeId !== null && (
-            <div className="provider-overrides">
-              <ProviderOverrideControls
-                className="provider-override-session"
-                providers={settings?.providers ?? []}
-                value={session.session?.provider}
-                disabled={activeId === null}
-                onChange={(next) => {
-                  void session.setSessionProvider(next);
-                }}
-              />
-              <ProviderOverrideControls
-                className="provider-override-draft"
-                providers={settings?.providers ?? []}
-                value={draftProvider}
-                draft
-                disabled={activeId === null}
-                onChange={setDraftProvider}
-              />
-            </div>
-          )}
-
-          <Composer
-            className="chat-composer"
-            menus={menus}
-            fetchItems={fetchItems}
-            modes={modes}
-            mode={session.draftMode}
-            // Only the local draft changes here. Persisting the session default is a
-            // separate, explicit call, which is what keeps a mid-turn mode change from
-            // touching the turn.
-            onModeChange={session.setDraftMode}
-            onSend={(value) => void send(value)}
-            onCancel={() => void session.cancel()}
-            turnInProgress={session.turn !== null}
-            disabled={activeId === null}
-            attachmentsEnabled={status?.features?.attachments === true}
-            placeholder={activeId === null ? 'Create a chat to begin' : 'Send a message…'}
-          />
-
-          <StatusBar
-            className="chat-status"
-            provider={effectiveProvider}
-            usage={
-              session.session?.usage ?? {
-                promptTokensTotal: 0,
-                completionTokensTotal: 0,
-                lastPromptTokens: 0,
-              }
+        <StatusBar
+          className="chat-status"
+          provider={effectiveProvider}
+          providers={settings?.providers ?? []}
+          override={session.session?.provider ?? null}
+          pickerDisabled={activeId === null || (settings?.providers.length ?? 0) === 0}
+          onProviderChange={(next) => {
+            void session.setSessionProvider(next);
+          }}
+          onListModels={async (providerId) => (await client.listModels({ providerId })).models}
+          usage={
+            session.session?.usage ?? {
+              promptTokensTotal: 0,
+              completionTokensTotal: 0,
+              lastPromptTokens: 0,
             }
-          />
-        </main>
-      )}
+          }
+        />
+      </main>
     </div>
   );
 }
+
+/** Decorative: the attach button carries its own `aria-label`. */
+function PaperclipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+      <path
+        d="M20 10.5 11.8 18.7a4.6 4.6 0 0 1-6.5-6.5l8.2-8.2a3 3 0 1 1 4.3 4.3l-8.2 8.2a1.4 1.4 0 0 1-2-2l7.5-7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+type SettingsSection = 'providers' | 'prompts' | 'tools';
+
+const SETTINGS_SECTIONS: ReadonlyArray<{ id: SettingsSection; label: string; hint: string }> = [
+  { id: 'providers', label: 'Providers', hint: 'Endpoints, models, context' },
+  { id: 'prompts', label: 'Prompts', hint: 'Global and per-mode text' },
+  { id: 'tools', label: 'Tools', hint: 'Availability and approval' },
+];
 
 function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () => void }) {
   const [settings, setSettings] = useState<HarnessSettings | null>(null);
   const [tools, setTools] = useState<ToolCatalogEntry[] | null>(null);
   const [catalogMode, setCatalogMode] = useState<ChatModeId>('agent');
+  const [section, setSection] = useState<SettingsSection>('providers');
   const [error, setError] = useState<string | null>(null);
 
   const refreshCatalog = useCallback(
@@ -303,88 +305,104 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
     [client],
   );
 
-  if (error !== null) {
-    return (
-      <main className="settings">
-        <header className="chat-header">
-          <button type="button" onClick={onBack}>
-            Back
-          </button>
-        </header>
-        <p className="error">{error}</p>
-      </main>
-    );
-  }
-
-  if (settings === null || tools === null) {
-    return (
-      <main className="settings">
-        <p>Loading settings…</p>
-      </main>
-    );
-  }
-
   return (
-    <main className="settings">
-      <header className="chat-header">
-        <span>Settings</span>
-        <button type="button" onClick={onBack}>
-          Back to chat
+    <div className="settings-layout">
+      <nav className="settings-sidebar" aria-label="Settings sections">
+        <button type="button" className="settings-back" onClick={onBack}>
+          ← Back to chat
         </button>
-      </header>
-      <div className="settings-panels">
-        <ProviderSettings
-          settings={settings}
-          onChange={async (update) => {
-            setSettings(await client.updateSettings(update));
-          }}
-          onTest={async (providerId) => client.testConnection({ providerId })}
-          onListModels={async (providerId) => (await client.listModels({ providerId })).models}
-        />
-        <PromptSettings
-          settings={settings}
-          onChange={async (update) => {
-            setSettings(await client.updateSettings(update));
-          }}
-          loadPreview={loadPromptPreview}
-        />
-        <section data-harness="tool-catalog-settings">
-          <header data-harness="tool-catalog-settings-header">
-            <h2>Tools</h2>
-            <label>
-              Mode
-              <select
-                value={catalogMode}
-                onChange={(event) => setCatalogMode(event.target.value as ChatModeId)}
-                aria-label="Catalog mode"
+
+        <h1>Settings</h1>
+
+        <ul>
+          {SETTINGS_SECTIONS.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                data-active={item.id === section}
+                aria-current={item.id === section ? 'page' : undefined}
+                onClick={() => setSection(item.id)}
               >
-                {(settings.modes.length > 0 ? settings.modes : ['ask', 'plan', 'agent']).map(
-                  (mode) => (
-                    <option key={mode} value={mode}>
-                      {mode}
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
-          </header>
-          <p data-harness="tool-catalog-settings-hint">
-            Availability follows the selected mode. Approval policy applies to future tool calls.
-          </p>
-          <ToolCatalogView
-            mode={catalogMode}
-            tools={tools}
-            onApprovalChange={async (toolName, rule) => {
-              setSettings(
-                await client.updateSettings({
-                  policies: { toolApprovals: { [toolName]: rule } },
-                }),
-              );
-              await refreshCatalog(catalogMode);
-            }}
-          />
-        </section>
-      </div>
-    </main>
+                <span className="settings-section-label">{item.label}</span>
+                <span className="settings-section-hint">{item.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <main className="settings-main">
+        {error !== null && <p className="error">{error}</p>}
+
+        {settings === null || tools === null ? (
+          <p className="settings-loading">Loading settings…</p>
+        ) : (
+          <div className="settings-section">
+            {section === 'providers' && (
+              <ProviderSettings
+                settings={settings}
+                onChange={async (update) => {
+                  setSettings(await client.updateSettings(update));
+                }}
+                onTest={async (providerId) => client.testConnection({ providerId })}
+                onListModels={async (providerId) =>
+                  (await client.listModels({ providerId })).models
+                }
+              />
+            )}
+
+            {section === 'prompts' && (
+              <PromptSettings
+                settings={settings}
+                onChange={async (update) => {
+                  setSettings(await client.updateSettings(update));
+                }}
+                loadPreview={loadPromptPreview}
+              />
+            )}
+
+            {section === 'tools' && (
+              <section data-harness="tool-catalog-settings">
+                <header data-harness="tool-catalog-settings-header">
+                  <h2>Tools</h2>
+                  <label>
+                    Mode
+                    <select
+                      value={catalogMode}
+                      onChange={(event) => setCatalogMode(event.target.value as ChatModeId)}
+                      aria-label="Catalog mode"
+                    >
+                      {(settings.modes.length > 0 ? settings.modes : ['ask', 'plan', 'agent']).map(
+                        (mode) => (
+                          <option key={mode} value={mode}>
+                            {mode}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                </header>
+                <p data-harness="tool-catalog-settings-hint">
+                  Availability follows the selected mode. Approval policy applies to future tool
+                  calls.
+                </p>
+                <ToolCatalogView
+                  mode={catalogMode}
+                  tools={tools}
+                  onApprovalChange={async (toolName, rule) => {
+                    setSettings(
+                      await client.updateSettings({
+                        policies: { toolApprovals: { [toolName]: rule } },
+                      }),
+                    );
+                    await refreshCatalog(catalogMode);
+                  }}
+                />
+              </section>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
   );
 }

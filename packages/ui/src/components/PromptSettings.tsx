@@ -102,10 +102,19 @@ export function PromptSettings(props: PromptSettingsProps) {
     }
   };
 
+  const storedPerMode = settings.prompts.perMode[mode] ?? '';
+  const dirty = globalDraft !== settings.prompts.global || perModeDraft !== storedPerMode;
+
+  const reset = () => {
+    setGlobalDraft(settings.prompts.global);
+    setPerModeDraft(storedPerMode);
+  };
+
   return (
     <section className={className} data-harness="prompt-settings">
       <header data-harness="prompt-settings-header">
         <h2>Prompts</h2>
+        {dirty && <span data-harness="prompt-dirty">Unsaved changes</span>}
       </header>
 
       <form
@@ -133,9 +142,13 @@ export function PromptSettings(props: PromptSettingsProps) {
             value={mode}
             onChange={(event) => setMode(event.target.value)}
           >
+            {/*
+              Modes that already carry text are marked, so an empty editor reads as
+              "this mode adds nothing" rather than "the text failed to load".
+            */}
             {modes.map((id) => (
               <option key={id} value={id}>
-                {id}
+                {(settings.prompts.perMode[id] ?? '').trim() === '' ? id : `${id} (set)`}
               </option>
             ))}
           </select>
@@ -153,8 +166,16 @@ export function PromptSettings(props: PromptSettingsProps) {
         </label>
 
         <div data-harness="prompt-actions">
-          <button type="submit" disabled={busy !== null}>
+          <button type="submit" data-variant="primary" disabled={busy !== null || !dirty}>
             Save prompts
+          </button>
+          <button
+            type="button"
+            data-harness="prompt-reset"
+            disabled={busy !== null || !dirty}
+            onClick={reset}
+          >
+            Reset
           </button>
         </div>
 
@@ -167,8 +188,13 @@ export function PromptSettings(props: PromptSettingsProps) {
           {busy === 'preview' && <span data-harness="prompt-preview-busy">Refreshing…</span>}
         </header>
         <p data-harness="prompt-preview-hint">
-          Same composition a turn pins, including dynamic slots. Save to refresh after edits.
+          Same composition a turn pins, including dynamic slots.
         </p>
+        {dirty && (
+          <p data-harness="prompt-preview-stale">
+            This is the saved prompt. Save to see your edits composed.
+          </p>
+        )}
         {preview !== null ? (
           <PromptPreviewView preview={preview} />
         ) : (

@@ -49,9 +49,9 @@ export function resolveActiveProviderSnapshot(input: {
           id: profile.id,
           ...(profile.label === undefined ? {} : { label: profile.label }),
           model: profile.model,
-          ...(resolveWindow(profile, profile.model) === undefined
+          ...(resolveModelContextWindow(profile, profile.model) === undefined
             ? {}
-            : { contextWindow: resolveWindow(profile, profile.model) }),
+            : { contextWindow: resolveModelContextWindow(profile, profile.model) }),
         };
 
   if (base === null) {
@@ -62,7 +62,8 @@ export function resolveActiveProviderSnapshot(input: {
   const window =
     profile === null
       ? base.contextWindow
-      : (resolveWindow(profile, model) ?? (model === base.model ? base.contextWindow : undefined));
+      : (resolveModelContextWindow(profile, model) ??
+        (model === base.model ? base.contextWindow : undefined));
 
   return {
     id: base.id,
@@ -85,6 +86,16 @@ function withOverride(
   };
 }
 
-function resolveWindow(profile: ProviderProfile, model: string): number | undefined {
+/**
+ * The context window in force for a model: the user's override, else the catalog
+ * value the provider last reported.
+ *
+ * Exported because the settings hint and the status bar donut must not be able to
+ * disagree about which number a turn will actually use.
+ */
+export function resolveModelContextWindow(
+  profile: ProviderProfile,
+  model: string,
+): number | undefined {
   return profile.modelContextWindowOverrides[model] ?? profile.modelContextWindows[model];
 }

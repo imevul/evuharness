@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     grants: new SqliteGrantStore({ db }),
     settings: new SqliteSettingsStore({ db }),
     ...(config.fakeProvider ? { provider: new FakeProvider() } : {}),
-    tools: demoTools(),
+    tools: demoTools({ includeEcho: config.fakeProvider }),
     skills,
     contextMenus: demoMenus(skills),
     features: {
