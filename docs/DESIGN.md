@@ -27,7 +27,10 @@ Exported components fall into three tiers:
 
 The markdown renderer is a primitive the transcript uses, not a second page.
 Completed rows go through it. The live streaming bubble stays plain text so a
-half-closed fence does not flash a broken diagram on every token.
+half-closed fence does not flash a broken diagram on every token. If the bubble
+uses `white-space: pre-wrap` for that live path, reset the markdown root to
+`normal` and collapse default `p` / `ul` margins — otherwise every blank line
+in a loose list becomes a full extra gap.
 
 The status bar is tier-2: it takes protocol-shaped props (the public active
 provider snapshot, `SessionUsage`, and the resolved max tokens). It does not
@@ -173,6 +176,13 @@ show one profile at a time and then cannot say which profile turns actually use 
 to be on screen. So the list carries the active badge, `Use`, and icon buttons for
 edit and delete; delete goes through a confirm.
 
+The same list-plus-modal chrome is reused for optional builtins that a host
+turns on: Agents (soul textarea), Search (DuckDuckGo / SearXNG), and MCP
+(server URL plus optional bearer). Memory is a USER.md editor plus a searchable
+MEMORY list. Compaction is strategy, target percent, and keep-recent. A flag
+that is off does not appear in the sidebar at all — the section list is assembled
+from `status.features`, not hardcoded as the full set.
+
 **Model fields are free text with a Browse picker beside them,** never a closed
 dropdown. A provider may serve a model it does not advertise, and a control that
 refuses unknown ids makes that model unreachable. The picker fetches the catalog
@@ -209,6 +219,26 @@ collapsed secondary block (`data-harness="reasoning"`), never as the assistant
 bubble. Live turns open the block while streaming so tokens stay visible;
 completed rows keep it collapsed. Hosts theme the attribute; the kit does not
 ship a glow or accent treatment for it.
+
+Assistant turns fold thinking, `report_progress` notes, and tool calls into one
+disclosure (`data-harness="work-trace"`). The latest completed turn and the live
+turn keep it open; older turns stay collapsed. The summary is `Worked for 12s`
+when `startedAt` and `createdAt` are present, `Worked` when they are not, and
+`Working` while a turn is still in flight. Opening it restores the thinking
+block, the inline progress notes (`data-harness="progress-note"`), and the
+per-tool argument and result details. A turn with neither reasoning, notes, nor
+tools omits the chrome.
+
+`report_progress` is not rendered as a tool row. Its `text` argument is the
+note. Hosts theme the attributes; the kit does not ship a glow or accent
+treatment for them.
+
+The transcript frame (`data-harness="transcript-frame"`) owns stick-to-bottom.
+While the person is at the end of the scroller, new tokens and rows keep them
+there. Scrolling away unpins and shows a jump control
+(`data-harness="scroll-bottom"`) at the bottom center. Clicking it pins again.
+A host that remounts the transcript on session change (a `key` on the session
+id) lands at the latest row of the newly selected chat.
 
 ## Accessibility
 

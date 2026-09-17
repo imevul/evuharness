@@ -68,6 +68,14 @@ export const ROUTE_CAPABILITIES = {
   'GET /tools': CAPABILITIES.read,
   'GET /context-menus': CAPABILITIES.read,
   'POST /context-menus/:id/items': CAPABILITIES.read,
+  'GET /memory/user': CAPABILITIES.read,
+  'PUT /memory/user': CAPABILITIES.administer,
+  'GET /memory': CAPABILITIES.read,
+  'POST /memory': CAPABILITIES.administer,
+  'PATCH /memory/:id': CAPABILITIES.administer,
+  'DELETE /memory/:id': CAPABILITIES.administer,
+  'POST /sessions/:id/compaction/reset': CAPABILITIES.administer,
+  'POST /mcp/:id/test': CAPABILITIES.administer,
 } as const satisfies Record<string, Capability>;
 
 export interface AuthHooks {

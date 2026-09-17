@@ -110,7 +110,10 @@ export interface TurnControllerDeps {
    * Builtins always resolve to `always_allow`. Unknown names fail closed to
    * `requires_approval`.
    */
-  toolApprovalRule(name: string): Promise<'always_allow' | 'requires_approval'>;
+  toolApprovalRule(
+    name: string,
+    args?: Record<string, unknown>,
+  ): Promise<'always_allow' | 'requires_approval'>;
   /** Host skill catalog; required for `load_skill` mid-turn injection. */
   skills?: SkillCatalog;
   /**
@@ -444,6 +447,7 @@ async function* executeTurn(
           reasoning,
           tools: turnTools,
           usage,
+          startedAt: pin.startedAt,
         });
         break;
       }
@@ -488,6 +492,7 @@ async function* executeTurn(
           reasoning,
           tools: turnTools,
           usage,
+          startedAt: pin.startedAt,
         });
         break;
       }
@@ -496,7 +501,13 @@ async function* executeTurn(
         content = streamed.content;
         reasoning += streamed.reasoning;
         usage = addUsage(usage, streamed.usage);
-        await persistPartial(deps, sessionId, { content, reasoning, tools: turnTools, usage });
+        await persistPartial(deps, sessionId, {
+          content,
+          reasoning,
+          tools: turnTools,
+          usage,
+          startedAt: pin.startedAt,
+        });
         terminal = { event: 'error', sessionId, message: streamed.message };
         break;
       }
@@ -516,6 +527,7 @@ async function* executeTurn(
           reasoning,
           tools: turnTools,
           usage,
+          startedAt: pin.startedAt,
         });
         terminal = doneEvent(record, content, turnTools, reasoning);
         break;
@@ -535,6 +547,7 @@ async function* executeTurn(
             reasoning,
             tools: turnTools,
             usage,
+            startedAt: pin.startedAt,
           });
           break;
         }
@@ -560,6 +573,7 @@ async function* executeTurn(
               reasoning,
               tools: turnTools,
               usage,
+              startedAt: pin.startedAt,
             });
             break;
           }
@@ -584,6 +598,7 @@ async function* executeTurn(
               reasoning,
               tools: turnTools,
               usage,
+              startedAt: pin.startedAt,
             });
             break;
           }
@@ -619,6 +634,7 @@ async function* executeTurn(
               ...(reasoning === '' ? {} : { reasoning }),
               partial: true,
               createdAt: deps.now(),
+              startedAt: pin.startedAt,
             }),
             usage,
           });
@@ -645,6 +661,7 @@ async function* executeTurn(
               reasoning,
               tools: turnTools,
               usage,
+              startedAt: pin.startedAt,
             });
             break;
           }
@@ -673,6 +690,7 @@ async function* executeTurn(
             ...(reasoning === '' ? {} : { reasoning }),
             partial: true,
             createdAt: deps.now(),
+            startedAt: pin.startedAt,
           }),
           usage,
         });
@@ -694,9 +712,16 @@ async function* executeTurn(
         reasoning,
         tools: turnTools,
         usage,
+        startedAt: pin.startedAt,
       });
     } else {
-      await persistPartial(deps, sessionId, { content, reasoning, tools: turnTools, usage });
+      await persistPartial(deps, sessionId, {
+        content,
+        reasoning,
+        tools: turnTools,
+        usage,
+        startedAt: pin.startedAt,
+      });
       terminal = {
         event: 'error',
         sessionId,
@@ -879,6 +904,7 @@ async function* runPlanGate(
       ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
       partial: true,
       createdAt: deps.now(),
+      startedAt: input.pin.startedAt,
     }),
     pending: { ...latestBefore.pending, plan: pending },
     usage: input.usage,
@@ -988,6 +1014,7 @@ async function* runModeSwitchGate(
       ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
       partial: true,
       createdAt: deps.now(),
+      startedAt: input.pin.startedAt,
     }),
     pending: { ...latestBefore.pending, modeSwitch: pending },
     usage: input.usage,
@@ -1032,6 +1059,7 @@ async function* completeGateTool(
   deps: TurnControllerDeps,
   input: {
     sessionId: string;
+    pin: TurnPin;
     call: { id: string; name: string; arguments: Record<string, unknown> };
     content: string;
     reasoning: string;
@@ -1077,6 +1105,7 @@ async function* completeGateTool(
       ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
       partial: true,
       createdAt: deps.now(),
+      startedAt: input.pin.startedAt,
     }),
     usage: input.usage,
   });
@@ -1213,6 +1242,7 @@ async function* runAskUserGate(
         ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
         partial: true,
         createdAt: deps.now(),
+        startedAt: input.pin.startedAt,
       }),
       { kind: 'system', text: questionText, createdAt: deps.now() },
     ],
@@ -1283,6 +1313,7 @@ async function* denyAskAsTool(
   deps: TurnControllerDeps,
   input: {
     sessionId: string;
+    pin: TurnPin;
     call: { id: string; name: string; arguments: Record<string, unknown> };
     content: string;
     reasoning: string;
@@ -1333,6 +1364,7 @@ async function* denyAskAsTool(
       ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
       partial: true,
       createdAt: deps.now(),
+      startedAt: input.pin.startedAt,
     }),
     usage: input.usage,
   });
@@ -1430,7 +1462,7 @@ async function* executeTool(
     denied = true;
   } else {
     const registration = deps.tools.get(call.name);
-    if ((await deps.toolApprovalRule(call.name)) === 'requires_approval') {
+    if ((await deps.toolApprovalRule(call.name, args)) === 'requires_approval') {
       const digest = digestToolCall(call.name, args);
       const granted = await resolveGrant(deps.grants, {
         sessionId: pin.sessionId,
@@ -1769,6 +1801,7 @@ async function persistTerminalAssistant(
     reasoning: string;
     tools: ToolEvent[];
     usage: SessionRecord['usage'];
+    startedAt: string;
   },
 ): Promise<SessionRecord> {
   return withSessionLock(deps.store, sessionId, async () => {
@@ -1784,6 +1817,7 @@ async function persistTerminalAssistant(
         ...(input.tools.length === 0 ? {} : { tools: input.tools }),
         ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
         createdAt: deps.now(),
+        startedAt: input.startedAt,
       }),
       usage: input.usage,
     });
@@ -1798,6 +1832,7 @@ async function persistPartial(
     reasoning: string;
     tools: ToolEvent[];
     usage: SessionRecord['usage'];
+    startedAt: string;
   },
 ): Promise<SessionRecord> {
   return withSessionLock(deps.store, sessionId, async () => {
@@ -1818,6 +1853,7 @@ async function persistPartial(
         ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
         partial: true,
         createdAt: deps.now(),
+        startedAt: input.startedAt,
       }),
       usage: input.usage,
     });
@@ -1833,6 +1869,7 @@ async function finishCancelled(
     reasoning: string;
     tools: ToolEvent[];
     usage: SessionRecord['usage'];
+    startedAt: string;
   },
 ): Promise<StreamEvent> {
   const current = await deps.store.get(sessionId);
@@ -1852,6 +1889,7 @@ async function finishCancelled(
       ...(input.reasoning === '' ? {} : { reasoning: input.reasoning }),
       cancelled: true,
       createdAt: deps.now(),
+      startedAt: input.startedAt,
     }),
     usage: input.usage,
     // A cancel while a gate is open must not leave pending rows that a later

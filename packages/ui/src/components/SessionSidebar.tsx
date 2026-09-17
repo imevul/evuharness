@@ -23,7 +23,9 @@ export function SessionSidebar(props: SessionSidebarProps) {
         {sessions.map((session) => (
           <li key={session.id} data-harness="session-row" data-active={session.id === activeId}>
             <button type="button" onClick={() => onSelect(session.id)}>
-              <span data-harness="session-title">{session.title}</span>
+              <span data-harness="session-title" title={session.title}>
+                {session.title}
+              </span>
               <span data-harness="session-mode">{session.mode}</span>
               {session.turnInProgress && <span data-harness="session-live">●</span>}
             </button>

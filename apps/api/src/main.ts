@@ -6,6 +6,7 @@ import { createHarnessRouter } from '@evu/harness-server';
 import {
   openDatabase,
   SqliteGrantStore,
+  SqliteMemoryStore,
   SqliteSessionStore,
   SqliteSettingsStore,
 } from '@evu/harness-sqlite';
@@ -46,12 +47,19 @@ async function main(): Promise<void> {
     store: new SqliteSessionStore({ db }),
     grants: new SqliteGrantStore({ db }),
     settings: new SqliteSettingsStore({ db }),
+    memory: new SqliteMemoryStore({ db }),
     ...(config.fakeProvider ? { provider: new FakeProvider() } : {}),
     tools: demoTools({ includeEcho: config.fakeProvider }),
     skills,
     contextMenus: demoMenus(skills),
     features: {
       attachments: true,
+      agents: true,
+      memory: true,
+      webSearch: true,
+      httpRequest: true,
+      compaction: true,
+      mcp: true,
     },
     providers: [
       {

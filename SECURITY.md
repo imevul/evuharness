@@ -90,11 +90,13 @@ host supplies its own actor resolution and capability checks.
   acceptable only for local development.
 - Capability checks belong on the server boundary, before a turn starts.
 - Named capabilities on the route surface:
-  - `harness:read` — status, sessions, settings reads, tools, menus, prompt preview
+  - `harness:read` — status, sessions, settings reads, tools, menus, prompt
+    preview, memory lists
   - `harness:chat` — create or delete a session, set mode or provider, stream a
     turn, cancel
   - `harness:decide` — resolve a tool approval, plan, mode-switch, or ask-user gate
-  - `harness:administer` — change settings, list models, test a provider connection
+  - `harness:administer` — change settings, list models, test a provider
+    connection, write memory, reset compaction, probe MCP health
 - `/health` stays unauthenticated so liveness probes do not need credentials.
 - An unresolved actor yields `401`. A missing capability yields `403` and names
   the capability in the body.
@@ -104,3 +106,30 @@ host supplies its own actor resolution and capability checks.
   not be used as a production auth scheme. The demo refuses to enable it when
   `NODE_ENV=production`, so a production image cannot turn it on by setting
   `EVUHARNESS_DEV_TOKEN`.
+
+## Optional network tools
+
+`http_request` and `web_search` are off unless the host sets the matching
+feature flags.
+
+- `http_request` blocks loopback, link-local, RFC1918, carrier-grade NAT, and
+  cloud metadata addresses after DNS resolution. A host that needs an exception
+  passes `httpRequest.allowHosts` or `allowPrivate` on `createHarness`.
+- Responses are size-capped and wrapped as untrusted tool output. GET and HEAD
+  run without approval; other methods require a decision.
+- `web_search` is read-only. SearXNG tokens are write-only on the settings
+  surface, same rule as provider keys.
+
+## MCP proxy
+
+Remote MCP tools never join the harness catalog. `mcp_call` is approved per
+`{ serverId, tool, arguments }` digest. Allowing one call does not authorize
+every server. Standing grants must not be keyed as `policies.toolApprovals['mcp_call']`
+— that would make `allow_always` mean the whole MCP world. Per-tool policy lives
+on the server profile (`permissions.default` today; `permissions.tools` later).
+
+## Memory writes
+
+`write_user`, `remember`, and `forget` require approval. USER.md is standing
+facts about the person; MEMORY is everything else. Tool results from both stores
+are wrapped as untrusted data.

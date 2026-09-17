@@ -1,7 +1,8 @@
-import type {
-  HarnessSettings,
-  HarnessSettingsUpdate,
-  ProviderProfile,
+import {
+  emptyHarnessSettings,
+  type HarnessSettings,
+  type HarnessSettingsUpdate,
+  type ProviderProfile,
 } from '@evu/harness-protocol';
 import { ProviderSettings } from '@evu/harness-ui';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -31,10 +32,9 @@ function settingsWith(
   activeProviderId: string | null = null,
 ): HarnessSettings {
   return {
+    ...emptyHarnessSettings(),
     providers,
     activeProviderId,
-    prompts: { global: '', perMode: {} },
-    policies: { toolApprovals: {}, askUserEnabled: true, maxToolRounds: 12 },
     modes: ['ask', 'plan', 'agent'],
   };
 }

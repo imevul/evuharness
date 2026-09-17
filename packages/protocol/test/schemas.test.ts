@@ -388,11 +388,15 @@ describe('routes', () => {
     expect(ROUTES.toolApproval('s1', 'a1')).toBe('/sessions/s1/tool-approvals/a1');
     expect(ROUTES.askUser('s1', 'q1')).toBe('/sessions/s1/ask-user/q1');
     expect(ROUTES.contextMenuItems('mentions')).toBe('/context-menus/mentions/items');
+    expect(ROUTES.memoryUser).toBe('/memory/user');
+    expect(ROUTES.memory('m1')).toBe('/memory/m1');
+    expect(ROUTES.compactionReset('s1')).toBe('/sessions/s1/compaction/reset');
+    expect(ROUTES.mcpHealth('m1')).toBe('/mcp/m1/test');
   });
 });
 
 describe('builtin tools', () => {
-  it.each(['request_mode_switch', 'propose_plan', 'ask_user', 'load_skill'])(
+  it.each(['request_mode_switch', 'propose_plan', 'ask_user', 'load_skill', 'report_progress'])(
     'recognizes %s as runtime-owned',
     (name) => {
       expect(isBuiltinToolName(name)).toBe(true);

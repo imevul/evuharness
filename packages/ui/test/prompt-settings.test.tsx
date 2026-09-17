@@ -1,4 +1,8 @@
-import type { HarnessSettings, PromptPreview } from '@evu/harness-protocol';
+import {
+  emptyHarnessSettings,
+  type HarnessSettings,
+  type PromptPreview,
+} from '@evu/harness-protocol';
 import { PromptSettings } from '@evu/harness-ui';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,17 +13,11 @@ afterEach(() => {
 
 function baseSettings(overrides: Partial<HarnessSettings['prompts']> = {}): HarnessSettings {
   return {
-    providers: [],
-    activeProviderId: null,
+    ...emptyHarnessSettings(),
     prompts: {
       global: 'You are helpful.',
       perMode: { ask: 'Be brief.' },
       ...overrides,
-    },
-    policies: {
-      toolApprovals: {},
-      askUserEnabled: true,
-      maxToolRounds: 12,
     },
     modes: ['ask', 'plan', 'agent'],
   };

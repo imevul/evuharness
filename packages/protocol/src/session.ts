@@ -80,6 +80,8 @@ export const TranscriptRowSchema = z.object({
   partial: z.boolean().optional(),
   cancelled: z.boolean().optional(),
   createdAt: z.string().optional(),
+  /** Turn pin time. With `createdAt`, this is how long the turn ran. */
+  startedAt: z.string().optional(),
 });
 export type TranscriptRow = z.infer<typeof TranscriptRowSchema>;
 

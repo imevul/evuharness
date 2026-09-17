@@ -8,6 +8,8 @@ import type {
   ContextMenuItemsResponse,
   HarnessSettings,
   HarnessSettingsUpdate,
+  MemoryEntry,
+  MemoryEntryWrite,
   ModelListResponse,
   PromptPreview,
   Scope,
@@ -15,9 +17,15 @@ import type {
   SessionSummary,
   StatusResponse,
   StreamEvent,
+  ToolApprovalRule,
   ToolCatalogResponse,
+  UserProfile,
 } from '@evu/harness-protocol';
+import { BUILTIN_TOOL_NAMES, isBuiltinToolName } from '@evu/harness-protocol';
+import { builtinMcpTools } from './builtin-mcp-tools.js';
+import { builtinMemoryTools } from './builtin-memory-tools.js';
 import { builtinGateTools } from './builtin-tools.js';
+import { builtinHttpRequestTool, builtinWebSearchTool } from './builtin-web-tools.js';
 import type { CompactContext } from './context-compaction.js';
 import { defaultCompactContext } from './context-compaction.js';
 import type { ContextMenuDefinition } from './context-menus/index.js';
@@ -25,11 +33,15 @@ import { ContextMenuRegistry } from './context-menus/index.js';
 import type { ProviderAdapter } from './fake-provider.js';
 import { GateWaiterRegistry } from './gate-waiters.js';
 import type { GrantStore } from './grants.js';
+import { createMcpClient } from './mcp-client.js';
+import { DEFAULT_MCP_PERMISSIONS, resolveMcpCallApproval } from './mcp-permissions.js';
+import { capUserProfile, InMemoryMemoryStore, type MemoryStore } from './memory-store.js';
 import { createTurnPin, type ModeWriter, setSessionMode, type TurnPin } from './mode-pinning.js';
 import { resolveContextWindow } from './model-catalog.js';
 import { type ModePolicy, ModeRegistry, STOCK_MODES } from './modes.js';
 import { OpenAICompatibleClient } from './openai-client.js';
 import { composePrompt, type PromptConfig } from './prompts.js';
+import { createRollingCompactor } from './rolling-compaction.js';
 import { type SessionCacheOptions, withSessionLock, wrapSessionStore } from './session-cache.js';
 import {
   createSessionRecord,
@@ -43,6 +55,7 @@ import {
   emptyStoredSettings,
   InMemorySettingsStore,
   isPristineStoredSettings,
+  normalizeStoredSettings,
   type ProviderProfileInput,
   type SettingsStore,
   type StoredProviderProfile,
@@ -50,6 +63,7 @@ import {
   toPublicSettings,
 } from './settings-store.js';
 import { builtinLoadSkillTool, type SkillCatalog, type SkillSummary } from './skills/index.js';
+import type { HttpRequestPolicy } from './ssrf.js';
 import type { ListSessionsOptions, SessionStore } from './stores.js';
 import { InMemoryGrantStore, InMemorySessionStore } from './stores.js';
 import { type ToolDefinition, ToolRegistry } from './tools.js';
@@ -71,6 +85,12 @@ export interface HarnessFeatures {
   settings?: boolean;
   effort?: boolean;
   attachments?: boolean;
+  agents?: boolean;
+  memory?: boolean;
+  webSearch?: boolean;
+  httpRequest?: boolean;
+  compaction?: boolean;
+  mcp?: boolean;
 }
 
 /**
@@ -116,6 +136,10 @@ export interface HarnessConfig {
   compactContext?: CompactContext;
   policies?: HarnessPolicies;
   features?: HarnessFeatures;
+  /** USER.md / MEMORY.md store. Used only when `features.memory` is on. */
+  memory?: MemoryStore;
+  /** SSRF exceptions for `http_request`. */
+  httpRequest?: HttpRequestPolicy;
   idFactory?: () => string;
   clock?: () => string;
   fetch?: typeof globalThis.fetch;
@@ -143,8 +167,17 @@ export interface Harness {
   readonly grants: GrantStore;
   readonly settingsStore: SettingsStore;
   readonly features: Required<HarnessFeatures>;
+  readonly memoryStore: MemoryStore;
 
   status(): Promise<StatusResponse>;
+  getUserProfile(): Promise<UserProfile>;
+  setUserProfile(text: string): Promise<UserProfile>;
+  listMemories(query?: string): Promise<MemoryEntry[]>;
+  upsertMemory(write: MemoryEntryWrite): Promise<MemoryEntry>;
+  deleteMemory(id: string): Promise<boolean>;
+  resetCompaction(sessionId: string): Promise<void>;
+  probeMcp(serverId: string): Promise<ConnectionTestResult>;
+
   getSettings(): Promise<HarnessSettings>;
   updateSettings(update: HarnessSettingsUpdate): Promise<HarnessSettings>;
   /** The stored profile including the key. Never sent over the wire. */
@@ -202,21 +235,79 @@ export function createHarness(config: HarnessConfig = {}): Harness {
   const store = wrapSessionStore(config.store ?? new InMemorySessionStore(), config.cache);
   const grants = config.grants ?? new InMemoryGrantStore();
   const settingsStore = config.settings ?? new InMemorySettingsStore();
+  const memoryStore = config.memory ?? new InMemoryMemoryStore();
   const modes = new ModeRegistry(config.modes ?? STOCK_MODES);
   const skills = config.skills ?? null;
-  const tools = new ToolRegistry([
-    ...(config.tools ?? []),
-    ...builtinGateTools(),
-    ...(skills === null ? [] : [builtinLoadSkillTool()]),
-  ]);
-  const contextMenus = new ContextMenuRegistry(config.contextMenus ?? []);
   const hostPrompts: PromptConfig = config.prompts ?? {};
   const newId = config.idFactory ?? defaultIdFactory();
   const now = config.clock ?? (() => new Date().toISOString());
+  const fetchImpl = config.fetch ?? globalThis.fetch.bind(globalThis);
   const openai = new OpenAICompatibleClient({
     ...(config.fetch === undefined ? {} : { fetch: config.fetch }),
   });
   const provider: ProviderAdapter = config.provider ?? openai;
+
+  const features: Required<HarnessFeatures> = {
+    settings: config.features?.settings ?? true,
+    effort: config.features?.effort ?? true,
+    attachments: config.features?.attachments ?? false,
+    agents: config.features?.agents ?? false,
+    memory: config.features?.memory ?? false,
+    webSearch: config.features?.webSearch ?? false,
+    httpRequest: config.features?.httpRequest ?? false,
+    compaction: config.features?.compaction ?? false,
+    mcp: config.features?.mcp ?? false,
+  };
+
+  const optionalTools: ToolDefinition[] = [];
+  if (features.memory) {
+    optionalTools.push(...builtinMemoryTools(memoryStore, now));
+  }
+  if (features.webSearch) {
+    optionalTools.push(
+      builtinWebSearchTool({
+        fetch: fetchImpl,
+        activeSearch: async () => {
+          const stored = await loadStored();
+          const id = stored.activeSearchProviderId;
+          const row =
+            id === null
+              ? (stored.searchProviders[0] ?? null)
+              : (stored.searchProviders.find((entry) => entry.id === id) ?? null);
+          return row;
+        },
+      }),
+    );
+  }
+  if (features.httpRequest) {
+    optionalTools.push(
+      builtinHttpRequestTool({
+        fetch: fetchImpl,
+        activeSearch: async () => null,
+        ...(config.httpRequest === undefined ? {} : { httpPolicy: config.httpRequest }),
+      }),
+    );
+  }
+  if (features.mcp) {
+    optionalTools.push(
+      ...builtinMcpTools({
+        fetch: fetchImpl,
+        listServers: async () =>
+          (await loadStored()).mcpServers.map((server) => ({
+            ...server,
+            permissions: server.permissions ?? DEFAULT_MCP_PERMISSIONS,
+          })),
+      }),
+    );
+  }
+
+  const tools = new ToolRegistry([
+    ...(config.tools ?? []),
+    ...builtinGateTools(),
+    ...(skills === null ? [] : [builtinLoadSkillTool()]),
+    ...optionalTools,
+  ]);
+  const contextMenus = new ContextMenuRegistry(config.contextMenus ?? []);
 
   async function skillSummaries(): Promise<SkillSummary[]> {
     if (skills === null) {
@@ -234,12 +325,6 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     throw new Error(`Unknown activeProviderId: ${config.activeProviderId}`);
   }
 
-  const features: Required<HarnessFeatures> = {
-    settings: config.features?.settings ?? true,
-    effort: config.features?.effort ?? true,
-    attachments: config.features?.attachments ?? false,
-  };
-
   /**
    * Load settings, seeding only when the store has never been written.
    *
@@ -248,9 +333,14 @@ export function createHarness(config: HarnessConfig = {}): Harness {
    * empty default shape — not "no providers" — so prompt-only edits stick.
    */
   async function loadStored() {
-    const current = await settingsStore.get();
+    const current = normalizeStoredSettings(await settingsStore.get());
     // After any UI write (providers, prompts, or tool approvals), the store wins.
     if (!isPristineStoredSettings(current)) {
+      if (features.webSearch && current.searchProviders.length === 0) {
+        current.searchProviders = [{ id: 'duckduckgo', kind: 'duckduckgo', label: 'DuckDuckGo' }];
+        current.activeSearchProviderId = 'duckduckgo';
+        await settingsStore.put(current);
+      }
       return current;
     }
 
@@ -266,14 +356,51 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       askUserEnabled: config.policies?.askUser ?? true,
       maxToolRounds: config.policies?.maxToolRounds ?? 12,
     };
+    if (features.webSearch) {
+      seeded.searchProviders = [{ id: 'duckduckgo', kind: 'duckduckgo', label: 'DuckDuckGo' }];
+      seeded.activeSearchProviderId = 'duckduckgo';
+    }
     if (
       seeded.providers.length > 0 ||
       seeded.prompts.global !== '' ||
-      Object.keys(seeded.prompts.perMode).length > 0
+      Object.keys(seeded.prompts.perMode).length > 0 ||
+      seeded.searchProviders.length > 0
     ) {
       await settingsStore.put(seeded);
     }
     return seeded;
+  }
+
+  async function composeExtras(stored: Awaited<ReturnType<typeof loadStored>>) {
+    const soul =
+      features.agents !== true
+        ? undefined
+        : stored.agents.find((agent) => agent.id === stored.activeAgentId)?.soul;
+    const userProfile =
+      features.memory !== true ? undefined : capUserProfile(await memoryStore.getUser());
+    let mcpSnapshot: string | undefined;
+    if (features.mcp) {
+      const enabled = stored.mcpServers.filter((server) => server.enabled);
+      if (enabled.length > 0) {
+        const client = createMcpClient(fetchImpl);
+        const lines: string[] = ['Configured MCP servers (call via mcp_list / mcp_call):'];
+        for (const server of enabled) {
+          try {
+            const listed = await client.listTools(server);
+            const names = listed.map((tool) => tool.name).join(', ');
+            lines.push(`- ${server.label ?? server.id}: ${names === '' ? '(none listed)' : names}`);
+          } catch {
+            lines.push(`- ${server.label ?? server.id}: (unreachable)`);
+          }
+        }
+        mcpSnapshot = lines.join('\n');
+      }
+    }
+    return {
+      ...(soul === undefined || soul.trim() === '' ? {} : { soul }),
+      ...(userProfile === undefined || userProfile === '' ? {} : { userProfile }),
+      ...(mcpSnapshot === undefined ? {} : { mcpSnapshot }),
+    };
   }
 
   function promptsFor(stored: Awaited<ReturnType<typeof loadStored>>): PromptConfig {
@@ -289,20 +416,15 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     return Object.fromEntries(tools.specs().map((spec) => [spec.name, spec.approval]));
   }
 
-  function builtinNames(): Set<string> {
-    return new Set(
-      tools
-        .specs()
-        .filter((spec) => spec.builtin)
-        .map((spec) => spec.name),
-    );
+  function gateNames(): Set<string> {
+    return new Set(Object.values(BUILTIN_TOOL_NAMES));
   }
 
   function approvalsFor(stored: Awaited<ReturnType<typeof loadStored>>) {
     return effectiveToolApprovals(
       registryApprovals(),
       stored.policies.toolApprovals ?? {},
-      builtinNames(),
+      gateNames(),
     );
   }
 
@@ -313,15 +435,27 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     });
   }
 
-  async function toolApprovalRule(name: string): Promise<'always_allow' | 'requires_approval'> {
+  async function toolApprovalRule(
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<ToolApprovalRule> {
     if (!tools.has(name)) {
-      // Fail closed: an unknown name must not skip the gate.
       return 'requires_approval';
     }
-    const spec = tools.get(name).spec;
-    if (spec.builtin) {
+    if (isBuiltinToolName(name)) {
       return 'always_allow';
     }
+    if (name === 'http_request') {
+      const method = String(args.method ?? 'GET').toUpperCase();
+      if (method === 'GET' || method === 'HEAD') return 'always_allow';
+      return 'requires_approval';
+    }
+    if (name === 'mcp_call') {
+      const stored = await loadStored();
+      const server = stored.mcpServers.find((entry) => entry.id === args.serverId);
+      return resolveMcpCallApproval(server?.permissions, String(args.tool ?? ''));
+    }
+    const spec = tools.get(name).spec;
     const stored = await loadStored();
     return stored.policies.toolApprovals?.[name] ?? spec.approval;
   }
@@ -392,6 +526,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       scope,
       sessionId: record.id,
       skills: await skillSummaries(),
+      ...(await composeExtras(stored)),
     });
 
     return createTurnPin({
@@ -420,7 +555,48 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     askUserEnabled: async () => (await loadStored()).policies.askUserEnabled,
     toolApprovalRule,
     ...(skills === null ? {} : { skills }),
-    compactContext: config.compactContext ?? defaultCompactContext,
+    compactContext:
+      config.compactContext ??
+      (features.compaction
+        ? createRollingCompactor({
+            loadState: async (sessionId) => (await loadRecord(sessionId)).compaction,
+            saveState: async (sessionId, state) => {
+              await withSessionLock(store, sessionId, async () => {
+                const record = await loadRecord(sessionId);
+                await store.upsert({ ...record, compaction: state });
+              });
+            },
+            getSettings: async () => (await loadStored()).compaction,
+            summarize: async (text) => {
+              const profile = await getStoredProvider();
+              if (profile === null) return null;
+              let collected = '';
+              try {
+                for await (const event of provider.complete(profile, {
+                  messages: [
+                    {
+                      role: 'system',
+                      content:
+                        'Summarize the earlier conversation for a later turn. Factual, compact, no tools. If there is nothing to keep, reply skip.',
+                    },
+                    { role: 'user', content: text },
+                  ],
+                  tools: [],
+                  model: profile.model,
+                  signal: new AbortController().signal,
+                })) {
+                  if (event.kind === 'delta') collected += event.text;
+                }
+              } catch {
+                return null;
+              }
+              const trimmed = collected.trim();
+              if (trimmed === '' || trimmed.toLowerCase().startsWith('skip')) return null;
+              return trimmed;
+            },
+            now,
+          })
+        : defaultCompactContext),
     attachmentsEnabled: features.attachments,
     now,
   });
@@ -432,7 +608,59 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     store,
     grants,
     settingsStore,
+    memoryStore,
     features,
+
+    async getUserProfile(): Promise<UserProfile> {
+      return { text: await memoryStore.getUser() };
+    },
+
+    async setUserProfile(text: string): Promise<UserProfile> {
+      await memoryStore.setUser(text);
+      return { text };
+    },
+
+    async listMemories(query?: string): Promise<MemoryEntry[]> {
+      return memoryStore.list(query);
+    },
+
+    async upsertMemory(write: MemoryEntryWrite): Promise<MemoryEntry> {
+      const entry: MemoryEntry = {
+        id: write.id ?? newId(),
+        title: write.title,
+        body: write.body,
+        updatedAt: now(),
+      };
+      await memoryStore.upsert(entry);
+      return entry;
+    },
+
+    async deleteMemory(id: string): Promise<boolean> {
+      return memoryStore.delete(id);
+    },
+
+    async resetCompaction(sessionId: string): Promise<void> {
+      await withSessionLock(store, sessionId, async () => {
+        const record = await loadRecord(sessionId);
+        const { compaction: _cleared, ...rest } = record;
+        await store.upsert(rest);
+      });
+    },
+
+    async probeMcp(serverId: string): Promise<ConnectionTestResult> {
+      const stored = await loadStored();
+      const server = stored.mcpServers.find((entry) => entry.id === serverId);
+      if (server === undefined) {
+        return { ok: false, message: `Unknown MCP server: ${serverId}` };
+      }
+      const started = Date.now();
+      try {
+        await createMcpClient(fetchImpl).listTools(server);
+        return { ok: true, latencyMs: Date.now() - started };
+      } catch (cause) {
+        return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
+      }
+    },
 
     async status(): Promise<StatusResponse> {
       const stored = await loadStored();
@@ -458,11 +686,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
         providerConfigured: stored.providers.length > 0,
         toolCount: tools.size,
         contextMenuCount: contextMenus.size,
-        features: {
-          settings: features.settings,
-          effort: features.effort,
-          attachments: features.attachments,
-        },
+        features,
       };
     },
 
@@ -477,7 +701,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
           if (!tools.has(name)) {
             throw new Error(`Unknown tool: ${name}`);
           }
-          if (tools.get(name).spec.builtin && rule !== 'always_allow') {
+          if (isBuiltinToolName(name) && rule !== 'always_allow') {
             throw new Error(`Builtin tool '${name}' cannot require approval`);
           }
         }
@@ -573,6 +797,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
         scope: input.scope ?? {},
         ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
         skills: await skillSummaries(),
+        ...(await composeExtras(stored)),
       });
     },
 

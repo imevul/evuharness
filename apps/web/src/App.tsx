@@ -1,18 +1,25 @@
 import type {
   ChatModeId,
   ContextMenuDescriptor,
+  HarnessFeaturesSnapshot,
   HarnessSettings,
+  MemoryEntry,
   SessionSummary,
   StatusResponse,
   ToolCatalogEntry,
 } from '@evu/harness-protocol';
 import {
+  AgentSettings,
+  CompactionSettingsPanel,
   Composer,
   GateStack,
   HarnessClient,
+  McpSettings,
+  MemorySettings,
   PromptSettings,
   ProviderSettings,
   resolveActiveProviderSnapshot,
+  SearchSettings,
   SessionSidebar,
   StatusBar,
   ToolCatalogView,
@@ -139,6 +146,7 @@ export function App() {
     return (
       <SettingsScreen
         client={client}
+        features={status?.features}
         onBack={() => {
           setScreen('chat');
           void Promise.all([client.status(), client.getSettings()]).then(
@@ -179,7 +187,12 @@ export function App() {
           </span>
         </header>
 
-        <Transcript className="chat-transcript" rows={session.transcript} turn={session.turn} />
+        <Transcript
+          key={activeId ?? 'none'}
+          className="chat-transcript"
+          rows={session.transcript}
+          turn={session.turn}
+        />
 
         {session.error !== null && <div className="error">{session.error}</div>}
 
@@ -262,20 +275,57 @@ function PaperclipIcon() {
   );
 }
 
-type SettingsSection = 'providers' | 'prompts' | 'tools';
+type SettingsSection =
+  | 'providers'
+  | 'prompts'
+  | 'tools'
+  | 'agents'
+  | 'memory'
+  | 'search'
+  | 'mcp'
+  | 'compaction';
 
-const SETTINGS_SECTIONS: ReadonlyArray<{ id: SettingsSection; label: string; hint: string }> = [
+const CORE_SETTINGS_SECTIONS: ReadonlyArray<{
+  id: SettingsSection;
+  label: string;
+  hint: string;
+  feature?: keyof HarnessFeaturesSnapshot;
+}> = [
   { id: 'providers', label: 'Providers', hint: 'Endpoints, models, context' },
   { id: 'prompts', label: 'Prompts', hint: 'Global and per-mode text' },
   { id: 'tools', label: 'Tools', hint: 'Availability and approval' },
+  { id: 'agents', label: 'Agents', hint: 'Souls composed into the prompt', feature: 'agents' },
+  { id: 'memory', label: 'Memory', hint: 'USER.md and MEMORY rows', feature: 'memory' },
+  { id: 'search', label: 'Search', hint: 'web_search providers', feature: 'webSearch' },
+  { id: 'mcp', label: 'MCP', hint: 'Remote list and call', feature: 'mcp' },
+  {
+    id: 'compaction',
+    label: 'Compaction',
+    hint: 'Rolling summary of older turns',
+    feature: 'compaction',
+  },
 ];
 
-function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () => void }) {
+function SettingsScreen({
+  client,
+  features,
+  onBack,
+}: {
+  client: HarnessClient;
+  features: HarnessFeaturesSnapshot | undefined;
+  onBack: () => void;
+}) {
   const [settings, setSettings] = useState<HarnessSettings | null>(null);
   const [tools, setTools] = useState<ToolCatalogEntry[] | null>(null);
   const [catalogMode, setCatalogMode] = useState<ChatModeId>('agent');
   const [section, setSection] = useState<SettingsSection>('providers');
   const [error, setError] = useState<string | null>(null);
+  const [userText, setUserText] = useState('');
+  const [memories, setMemories] = useState<MemoryEntry[]>([]);
+
+  const sections = CORE_SETTINGS_SECTIONS.filter(
+    (item) => item.feature === undefined || features?.[item.feature] === true,
+  );
 
   const refreshCatalog = useCallback(
     async (mode: ChatModeId) => {
@@ -300,6 +350,25 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
     });
   }, [catalogMode, refreshCatalog]);
 
+  const refreshMemory = useCallback(
+    async (query?: string) => {
+      if (features?.memory !== true) return;
+      const [profile, listed] = await Promise.all([
+        client.getUserProfile(),
+        client.listMemories(query),
+      ]);
+      setUserText(profile.text);
+      setMemories(listed.memories);
+    },
+    [client, features?.memory],
+  );
+
+  useEffect(() => {
+    void refreshMemory().catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    });
+  }, [refreshMemory]);
+
   const loadPromptPreview = useCallback(
     (mode: ChatModeId) => client.previewPrompt({ mode }),
     [client],
@@ -315,7 +384,7 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
         <h1>Settings</h1>
 
         <ul>
-          {SETTINGS_SECTIONS.map((item) => (
+          {sections.map((item) => (
             <li key={item.id}>
               <button
                 type="button"
@@ -399,6 +468,64 @@ function SettingsScreen({ client, onBack }: { client: HarnessClient; onBack: () 
                   }}
                 />
               </section>
+            )}
+
+            {section === 'agents' && (
+              <AgentSettings
+                settings={settings}
+                onChange={async (update) => {
+                  setSettings(await client.updateSettings(update));
+                }}
+              />
+            )}
+
+            {section === 'memory' && (
+              <MemorySettings
+                userText={userText}
+                memories={memories}
+                onSaveUser={async (text) => {
+                  const profile = await client.setUserProfile(text);
+                  setUserText(profile.text);
+                }}
+                onSearch={async (query) => {
+                  await refreshMemory(query);
+                }}
+                onSaveMemory={async (write) => {
+                  await client.upsertMemory(write);
+                }}
+                onDelete={async (id) => {
+                  await client.deleteMemory(id);
+                  await refreshMemory();
+                }}
+              />
+            )}
+
+            {section === 'search' && (
+              <SearchSettings
+                settings={settings}
+                onChange={async (update) => {
+                  setSettings(await client.updateSettings(update));
+                }}
+              />
+            )}
+
+            {section === 'mcp' && (
+              <McpSettings
+                settings={settings}
+                onChange={async (update) => {
+                  setSettings(await client.updateSettings(update));
+                }}
+                onTest={async (serverId) => client.probeMcp(serverId)}
+              />
+            )}
+
+            {section === 'compaction' && (
+              <CompactionSettingsPanel
+                value={settings.compaction}
+                onChange={async (update) => {
+                  setSettings(await client.updateSettings(update));
+                }}
+              />
             )}
           </div>
         )}

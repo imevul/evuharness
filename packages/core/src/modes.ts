@@ -19,16 +19,17 @@ export interface ModePolicy {
 }
 
 /**
- * Tools the model uses to open a gate.
+ * Tools the model uses to talk to the person or load a skill.
  *
- * Available in every mode and exempt from approval, because none of them can
- * cause a side effect on their own — each one suspends the turn for a person.
+ * Available in every mode. Gate tools suspend the turn; `report_progress` only
+ * writes a short note. None of them cause a host side effect on their own.
  */
 const GATE_TOOLS: readonly string[] = [
   BUILTIN_TOOL_NAMES.requestModeSwitch,
   BUILTIN_TOOL_NAMES.proposePlan,
   BUILTIN_TOOL_NAMES.askUser,
   BUILTIN_TOOL_NAMES.loadSkill,
+  BUILTIN_TOOL_NAMES.reportProgress,
 ];
 
 /**

@@ -36,6 +36,12 @@ export interface ComposePromptInput {
   scope?: Scope;
   sessionId?: string | undefined;
   skills?: readonly SkillSummary[];
+  /** Selected agent soul. Omitted or empty drops the section. */
+  soul?: string | undefined;
+  /** Capped USER.md. Omitted or empty drops the section. */
+  userProfile?: string | undefined;
+  /** Compact MCP server snapshot (names only). */
+  mcpSnapshot?: string | undefined;
 }
 
 const SECTION_SEPARATOR = '\n\n';
@@ -83,6 +89,26 @@ export async function composePrompt(input: ComposePromptInput): Promise<PromptPr
       text: perMode,
       dynamic: false,
     });
+  }
+
+  const soul = input.soul?.trim() ?? '';
+  if (soul !== '') {
+    sections.push({ id: 'soul', label: 'Agent', text: soul, dynamic: false });
+  }
+
+  const userProfile = input.userProfile?.trim() ?? '';
+  if (userProfile !== '') {
+    sections.push({
+      id: 'user',
+      label: 'User',
+      text: `USER.md is standing facts and preferences about the person. Projects and other persistable notes live in MEMORY, not here.\n\n${userProfile}`,
+      dynamic: true,
+    });
+  }
+
+  const mcpSnapshot = input.mcpSnapshot?.trim() ?? '';
+  if (mcpSnapshot !== '') {
+    sections.push({ id: 'mcp', label: 'MCP', text: mcpSnapshot, dynamic: true });
   }
 
   for (const slot of input.prompts.dynamic ?? []) {

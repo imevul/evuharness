@@ -51,7 +51,7 @@ presentation layer rather than a fork.
 | ------------------------ | ------------------------------------------------- |
 | `@evu/harness-protocol`  | Wire contracts: sessions, events, gates, settings |
 | `@evu/harness-core`      | Headless runtime; no HTTP, no DOM                 |
-| `@evu/harness-sqlite`    | Durable session and grant stores                  |
+| `@evu/harness-sqlite`    | Durable session, grant, settings, and memory stores |
 | `@evu/harness-server`    | HTTP/SSE routes over the runtime                  |
 | `@evu/harness-ui`        | React components bound to protocol types          |
 
@@ -79,11 +79,17 @@ const harness = createHarness({
   prompts: { global, perMode, dynamic },
   policies: { approvals, askUser },
   compactContext,         // optional; defaults to naive truncating compaction
+  features,               // optional builtins; each flag defaults off
 });
 ```
 
 Every list is an extension point. Hosts add tools, modes, menus, prompt slots,
 and provider profiles without modifying the turn loop.
+
+Optional builtins (`agents`, `memory`, `webSearch`, `httpRequest`, `compaction`,
+`mcp`) are flag-gated. Off means no matching tools, no compose-prompt section,
+no settings sidebar entry, and no routes beyond 404. The demo turns the flags
+on; a host that leaves them off gets a smaller harness.
 
 ## Sessions
 
@@ -94,13 +100,17 @@ A session holds two parallel representations:
 
 They are deliberately distinct. Transcript rows carry presentation state such as
 partial and cancelled markers that must never reach the model, and the message
-thread carries system content a UI should not display verbatim.
+thread carries system content a UI should not display verbatim. Assistant rows
+also stamp `startedAt` (the turn pin time) and `createdAt` so a UI can show how
+long a turn ran.
 
 Completed transcript rows render as sanitized rich text: CommonMark plus GFM,
 images, and mermaid fenced code blocks. Raw HTML is stripped. Image `src` values
 are allowlisted (`https:` and `data:image/*`). A live stream stays plain text so
 a half-closed fence does not flash a broken diagram on every token. A dedicated
-mermaid tool is not part of the harness: models already emit fences.
+mermaid tool is not part of the harness: models already emit fences. The
+transcript stays pinned to the latest row while the person is at the bottom;
+scrolling away reveals a jump control.
 
 User turns may carry structured **attachments** (images and files) alongside
 context-menu refs. Attachment chips serialize to stable tokens in the wire text
@@ -227,6 +237,12 @@ A turn is a stream of events:
 The accumulated text lands on the transcript row's `reasoning` field and on the
 terminal `done` / `cancelled` event, never inside the assistant `content` body.
 
+`report_progress` is a runtime-owned tool in every stock mode. The model calls
+it after thinking or after a tool result with one or two sentences of status.
+The call is `always_allow` and has no host side effect: it persists as a tool
+event whose `text` argument a UI shows as an inline note, folded into the same
+work disclosure as thinking and other tools.
+
 Cancellation is cooperative and always persists what was produced. A user who
 sends another message during a live turn cancels it as a follow-up: the partial
 result is saved and the queued messages are drained as a single next turn.
@@ -276,12 +292,39 @@ The system prompt is composed, not stored:
 global prompt
 + mode blurb
 + per-mode prompt
++ soul (active agent, when `features.agents` is on)
++ user (capped USER.md, when `features.memory` is on)
++ mcp snapshot (server labels and tool names, when `features.mcp` is on)
 + dynamic slots (host-provided, evaluated per session)
 + skills catalog
 ```
 
-Composition is exposed as a preview so that a person can see exactly what the
-model will receive, including dynamic content.
+Empty optional sections are omitted. Composition is exposed as a preview so that
+a person can see exactly what the model will receive, including dynamic content.
+
+## Optional builtins
+
+When a host opts in:
+
+- **Agents** are named souls (`id`, `label`, `soul`). The active soul is composed
+  after per-mode text.
+- **Memory** is a store outside settings: singleton USER.md (standing facts and
+  preferences about the person) and searchable MEMORY rows (everything else that
+  should persist across chats). Tools: `read_user` / `write_user` /
+  `search_memory` / `remember` / `forget`. USER.md is also injected, capped, so
+  the model does not have to call `read_user` every turn. There is no line-range
+  `patch_user` in v1.
+- **Search** is `web_search` over named providers (`duckduckgo` or `searxng`).
+  DuckDuckGo is seeded as the default when the feature is first enabled.
+- **HTTP** is `http_request`. GET/HEAD run without approval; other methods
+  require approval. Core applies an SSRF policy (loopback, link-local, RFC1918,
+  and metadata addresses are blocked unless the host allowlists them).
+- **MCP** is two proxy tools, `mcp_list` and `mcp_call`, over Streamable HTTP /
+  SSE. Remote tools never join the harness catalog. Each server profile stores a
+  reserved `permissions` object (`default` plus an empty `tools` map) so a later
+  per-tool policy does not break the schema. Approval for `mcp_call` is resolved
+  through `resolveMcpCallApproval`; the grant digest covers `{ serverId, tool,
+  arguments }`. Stdio is out of scope.
 
 ## Context compaction
 
@@ -290,9 +333,12 @@ compaction hook over the outbound model thread (system prompt plus stored
 messages, after leading-system merges such as skills and prompt extras). The
 stock default is a naive truncator: keep the leading system message and the
 newest messages within a configurable message and/or approximate token budget.
-Compaction never rewrites the stored session transcript — only the thread sent
-to the model. Hosts replace the hook to summarize, or pass an identity function
-to disable it.
+When `features.compaction` is on, the default is a rolling or drop compactor
+that persists `{ summary, throughIndex, updatedAt }` on the session and injects
+`## Earlier in this conversation` into the leading system message. The hook
+runs every tool round and must stay idempotent. Stored messages stay verbatim.
+On summarize failure the current summary is kept and the truncator still
+applies. Hosts replace the hook, or pass an identity function to disable it.
 
 ## Providers
 

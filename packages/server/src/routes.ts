@@ -15,6 +15,7 @@ import {
   encodeSseComment,
   encodeSseEvent,
   HarnessSettingsUpdateSchema,
+  MemoryEntryWriteSchema,
   ModelListRequestSchema,
   ModeSwitchDecisionRequestSchema,
   PromptPreviewRequestSchema,
@@ -22,6 +23,7 @@ import {
   SetProviderRequestSchema,
   SSE_KEEPALIVE_INTERVAL_MS,
   ToolApprovalDecisionRequestSchema,
+  UserProfileSchema,
 } from '@evu/harness-protocol';
 import { Hono } from 'hono';
 import {
@@ -515,6 +517,80 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
     } catch (error) {
       return c.json({ error: 'invalid_request', detail: messageOf(error) }, 400);
     }
+  });
+
+  app.get('/memory/user', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.read);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.memory) return c.json({ error: 'not_found' }, 404);
+    return c.json(await harness.getUserProfile());
+  });
+
+  app.put('/memory/user', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.memory) return c.json({ error: 'not_found' }, 404);
+    const parsed = UserProfileSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+    return c.json(await harness.setUserProfile(parsed.data.text));
+  });
+
+  app.get('/memory', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.read);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.memory) return c.json({ error: 'not_found' }, 404);
+    return c.json({ memories: await harness.listMemories(c.req.query('q')) });
+  });
+
+  app.post('/memory', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.memory) return c.json({ error: 'not_found' }, 404);
+    const parsed = MemoryEntryWriteSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+    return c.json(await harness.upsertMemory(parsed.data), 201);
+  });
+
+  app.patch('/memory/:id', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.memory) return c.json({ error: 'not_found' }, 404);
+    const parsed = MemoryEntryWriteSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+    return c.json(await harness.upsertMemory({ ...parsed.data, id: c.req.param('id') }));
+  });
+
+  app.delete('/memory/:id', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.memory) return c.json({ error: 'not_found' }, 404);
+    const deleted = await harness.deleteMemory(c.req.param('id'));
+    return deleted ? c.body(null, 204) : c.json({ error: 'not_found' }, 404);
+  });
+
+  app.post('/sessions/:id/compaction/reset', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.compaction) return c.json({ error: 'not_found' }, 404);
+    try {
+      await harness.resetCompaction(c.req.param('id'));
+      return c.body(null, 204);
+    } catch {
+      return c.json({ error: 'not_found' }, 404);
+    }
+  });
+
+  app.post('/mcp/:id/test', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.administer);
+    if (rejection !== null) return c.json(rejection.body, rejection.status);
+    if (!harness.features.mcp) return c.json({ error: 'not_found' }, 404);
+    return c.json(await harness.probeMcp(c.req.param('id')));
   });
 
   app.post('/models', async (c) => {

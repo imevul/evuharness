@@ -29,6 +29,13 @@ export function ToolApprovalGate({
         Run <code>{approval.tool}</code>?
       </h3>
 
+      {approval.tool === 'mcp_call' && (
+        <p data-harness="gate-mcp-hint">
+          Allowing this call authorizes this server, remote tool, and arguments only — not every MCP
+          server.
+        </p>
+      )}
+
       <pre data-harness="gate-arguments">{JSON.stringify(approval.arguments, null, 2)}</pre>
 
       <div data-harness="gate-actions">

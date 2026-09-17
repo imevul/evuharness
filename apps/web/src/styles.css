@@ -190,7 +190,9 @@ pre {
   border-right: 1px solid var(--line);
   background: var(--panel);
   padding: var(--space-3);
+  overflow-x: hidden;
   overflow-y: auto;
+  min-width: 0;
 }
 
 .sidebar ul {
@@ -199,6 +201,12 @@ pre {
   padding: 0;
   display: grid;
   gap: 2px;
+  /*
+   * Grid items default to min-width: auto, so a long session title expands the
+   * track, the sidebar grows a horizontal scrollbar, and the delete control
+   * sits past the clip. Zero the floor so the title ellipsis can win.
+   */
+  min-width: 0;
 }
 
 .sidebar li {
@@ -206,11 +214,13 @@ pre {
   align-items: center;
   gap: var(--space-1);
   border-radius: var(--radius-sm);
+  min-width: 0;
 }
 
 .sidebar li > button:first-child {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   display: flex;
   gap: var(--space-2);
   align-items: baseline;
@@ -232,11 +242,13 @@ pre {
 }
 
 [data-harness="session-mode"] {
+  flex-shrink: 0;
   color: var(--muted);
   font-size: 0.85em;
 }
 
 [data-harness="session-live"] {
+  flex-shrink: 0;
   color: var(--accent);
 }
 
@@ -245,6 +257,7 @@ pre {
  * display, so it keeps its place in the tab order and in the a11y tree.
  */
 [data-harness="session-delete"] {
+  flex-shrink: 0;
   opacity: 0;
   border-color: transparent;
   color: var(--muted);
@@ -286,11 +299,56 @@ pre {
 }
 
 .chat-transcript {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-transcript [data-harness="transcript"] {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-5) var(--space-4);
+}
+
+.chat-transcript [data-harness="transcript-log"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+[data-harness="scroll-bottom"] {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border-color: rgb(255 255 255 / 10%);
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  color: var(--text);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 8%) inset,
+    0 8px 24px rgb(0 0 0 / 45%);
+  backdrop-filter: blur(12px);
+}
+
+[data-harness="scroll-bottom"]:hover:not(:disabled) {
+  background: var(--panel-raised);
+  border-color: var(--line-strong);
+  color: var(--accent-hover);
+}
+
+[data-harness="scroll-bottom"]:focus-visible {
+  border-radius: 50%;
+  outline-offset: 3px;
 }
 
 [data-harness="transcript-row"] {
@@ -377,6 +435,74 @@ pre {
   padding: 0;
   max-height: 240px;
   overflow-y: auto;
+}
+
+[data-harness="tool-trace"] {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin: 0 0 6px;
+}
+
+[data-harness="tool-summary"] {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+[data-harness="tool-summary"]::-webkit-details-marker {
+  display: none;
+}
+
+[data-harness="tool-summary"]::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+[data-harness="tool-trace"][open] [data-harness="tool-summary"]::before {
+  content: "▾ ";
+}
+
+[data-harness="tool-trace-details"] {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+[data-harness="work-trace"] {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin: 0 0 6px;
+}
+
+[data-harness="work-summary"] {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+[data-harness="work-summary"]::-webkit-details-marker {
+  display: none;
+}
+
+[data-harness="work-summary"]::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+[data-harness="work-trace"][open] [data-harness="work-summary"]::before {
+  content: "▾ ";
+}
+
+[data-harness="work-trace-details"] {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+[data-harness="progress-note"] {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95em;
 }
 
 [data-harness="tool"] summary {
@@ -846,6 +972,45 @@ pre {
 /* Markdown
    ------------------------------------------------------------------------- */
 
+/*
+ * Completed bubbles inherit `white-space: pre-wrap` from the live plain-text
+ * path. Leave that on the bubble; reset it here so newlines between <p> / <ul>
+ * do not render as extra blank lines on top of the browser's block margins.
+ */
+[data-harness="markdown"] {
+  white-space: normal;
+}
+
+[data-harness="markdown"] > :first-child {
+  margin-block-start: 0;
+}
+
+[data-harness="markdown"] > :last-child {
+  margin-block-end: 0;
+}
+
+[data-harness="markdown"] p,
+[data-harness="markdown"] ul,
+[data-harness="markdown"] ol,
+[data-harness="markdown"] blockquote,
+[data-harness="markdown"] pre,
+[data-harness="markdown"] table {
+  margin-block: 0.55em;
+}
+
+[data-harness="markdown"] li {
+  margin-block: 0.2em;
+}
+
+[data-harness="markdown"] li > p {
+  margin-block: 0.15em;
+}
+
+[data-harness="markdown"] ul,
+[data-harness="markdown"] ol {
+  padding-inline-start: 1.3em;
+}
+
 [data-harness="markdown"] pre,
 [data-harness="markdown"] code {
   background: var(--sunken);
@@ -1057,14 +1222,24 @@ pre {
 
 [data-harness="provider-settings"],
 [data-harness="prompt-settings"],
-[data-harness="tool-catalog-settings"] {
+[data-harness="tool-catalog-settings"],
+[data-harness="agent-settings"],
+[data-harness="memory-settings"],
+[data-harness="search-settings"],
+[data-harness="mcp-settings"],
+[data-harness="compaction-settings"] {
   display: grid;
   gap: var(--space-4);
 }
 
 [data-harness="provider-settings"] h2,
 [data-harness="prompt-settings"] h2,
-[data-harness="tool-catalog-settings"] h2 {
+[data-harness="tool-catalog-settings"] h2,
+[data-harness="agent-settings"] h2,
+[data-harness="memory-settings"] h2,
+[data-harness="search-settings"] h2,
+[data-harness="mcp-settings"] h2,
+[data-harness="compaction-settings"] h2 {
   margin: 0;
 }
 
@@ -1170,10 +1345,23 @@ pre {
 
 [data-harness="provider-form"] > label,
 [data-harness="prompt-form"] > label,
-[data-harness="model-picker"] > label {
+[data-harness="settings-form"] > label,
+[data-harness="model-picker"] > label,
+[data-harness="modal-body"] > label {
   display: grid;
   gap: var(--space-1);
   color: var(--muted);
+}
+
+[data-harness="provider-form"] textarea,
+[data-harness="prompt-form"] textarea,
+[data-harness="settings-form"] textarea,
+[data-harness="settings-form"] input,
+[data-harness="settings-form"] select,
+[data-harness="modal-body"] textarea,
+[data-harness="modal-body"] input,
+[data-harness="modal-body"] select {
+  width: 100%;
 }
 
 [data-harness="provider-context-hint"] {
@@ -1354,9 +1542,41 @@ pre {
 /* Prompts
    ------------------------------------------------------------------------- */
 
-[data-harness="prompt-form"] {
+[data-harness="prompt-form"],
+[data-harness="settings-form"] {
   display: grid;
   gap: var(--space-3);
+}
+
+/* Memory
+   ------------------------------------------------------------------------- */
+
+[data-harness="memory-user"],
+[data-harness="memory-list"] {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+
+[data-harness="memory-panel-header"] {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+[data-harness="memory-panel-header"] h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+[data-harness="memory-user-editor"] {
+  min-height: 14rem;
+  font-family: var(--mono);
+  line-height: 1.45;
 }
 
 [data-harness="prompt-dirty"] {

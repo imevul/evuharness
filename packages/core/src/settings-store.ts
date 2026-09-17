@@ -1,12 +1,25 @@
 import type {
+  AgentProfile,
+  AgentProfileWrite,
+  CompactionSettings,
   HarnessSettings,
   HarnessSettingsUpdate,
+  McpPermissions,
+  McpServer,
+  McpServerWrite,
   PolicySettings,
   PromptSettings,
   ProviderProfile,
   ProviderProfileWrite,
+  SearchProvider,
+  SearchProviderWrite,
 } from '@evu/harness-protocol';
-import { ProviderProfileSchema } from '@evu/harness-protocol';
+import {
+  McpServerSchema,
+  ProviderProfileSchema,
+  SearchProviderSchema,
+} from '@evu/harness-protocol';
+import { DEFAULT_MCP_PERMISSIONS } from './mcp-permissions.js';
 import { compactOverrideMap } from './model-catalog.js';
 
 export interface ProviderProfileInput {
@@ -43,11 +56,35 @@ export interface StoredProviderProfile {
   modelContextWindowOverrides: Record<string, number>;
 }
 
+export interface StoredSearchProvider {
+  id: string;
+  kind: SearchProvider['kind'];
+  label?: string | undefined;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
+}
+
+export interface StoredMcpServer {
+  id: string;
+  label?: string | undefined;
+  url: string;
+  transport: 'streamable-http' | 'sse';
+  enabled: boolean;
+  apiKey?: string | undefined;
+  permissions: McpPermissions;
+}
+
 export interface StoredSettings {
   providers: StoredProviderProfile[];
   activeProviderId: string | null;
   prompts: PromptSettings;
   policies: PolicySettings;
+  agents: AgentProfile[];
+  activeAgentId: string | null;
+  searchProviders: StoredSearchProvider[];
+  activeSearchProviderId: string | null;
+  mcpServers: StoredMcpServer[];
+  compaction: CompactionSettings;
 }
 
 export interface SettingsStore {
@@ -55,12 +92,41 @@ export interface SettingsStore {
   put(settings: StoredSettings): Promise<void>;
 }
 
+export const DEFAULT_COMPACTION: CompactionSettings = {
+  strategy: 'rolling',
+  targetPercent: 75,
+  keepRecent: 16,
+};
+
 export function emptyStoredSettings(): StoredSettings {
   return {
     providers: [],
     activeProviderId: null,
     prompts: { global: '', perMode: {} },
     policies: { toolApprovals: {}, askUserEnabled: true, maxToolRounds: 12 },
+    agents: [],
+    activeAgentId: null,
+    searchProviders: [],
+    activeSearchProviderId: null,
+    mcpServers: [],
+    compaction: { ...DEFAULT_COMPACTION },
+  };
+}
+
+/** Fill fields added after a settings payload was first written. */
+export function normalizeStoredSettings(raw: StoredSettings): StoredSettings {
+  const empty = emptyStoredSettings();
+  return {
+    ...empty,
+    ...raw,
+    prompts: { ...empty.prompts, ...raw.prompts },
+    policies: { ...empty.policies, ...raw.policies },
+    agents: raw.agents ?? [],
+    activeAgentId: raw.activeAgentId ?? null,
+    searchProviders: raw.searchProviders ?? [],
+    activeSearchProviderId: raw.activeSearchProviderId ?? null,
+    mcpServers: raw.mcpServers ?? [],
+    compaction: { ...DEFAULT_COMPACTION, ...raw.compaction },
   };
 }
 
@@ -79,7 +145,11 @@ export function isPristineStoredSettings(settings: StoredSettings): boolean {
     Object.keys(settings.prompts.perMode).length === 0 &&
     Object.keys(settings.policies.toolApprovals ?? {}).length === 0 &&
     (settings.policies.askUserEnabled ?? true) === true &&
-    (settings.policies.maxToolRounds ?? 12) === 12
+    (settings.policies.maxToolRounds ?? 12) === 12 &&
+    (settings.agents ?? []).length === 0 &&
+    (settings.activeAgentId ?? null) === null &&
+    (settings.searchProviders ?? []).length === 0 &&
+    (settings.mcpServers ?? []).length === 0
   );
 }
 
@@ -136,7 +206,35 @@ export function toPublicSettings(
       maxToolRounds: stored.policies.maxToolRounds ?? 12,
     },
     modes: extras.modes,
+    agents: stored.agents ?? [],
+    activeAgentId: stored.activeAgentId ?? null,
+    searchProviders: (stored.searchProviders ?? []).map(toPublicSearchProvider),
+    activeSearchProviderId: stored.activeSearchProviderId ?? null,
+    mcpServers: (stored.mcpServers ?? []).map(toPublicMcpServer),
+    compaction: stored.compaction ?? DEFAULT_COMPACTION,
   };
+}
+
+function toPublicSearchProvider(stored: StoredSearchProvider): SearchProvider {
+  return SearchProviderSchema.parse({
+    id: stored.id,
+    kind: stored.kind,
+    ...(stored.label === undefined ? {} : { label: stored.label }),
+    ...(stored.baseUrl === undefined ? {} : { baseUrl: stored.baseUrl }),
+    hasApiKey: stored.apiKey !== undefined && stored.apiKey !== '',
+  });
+}
+
+function toPublicMcpServer(stored: StoredMcpServer): McpServer {
+  return McpServerSchema.parse({
+    id: stored.id,
+    ...(stored.label === undefined ? {} : { label: stored.label }),
+    url: stored.url,
+    transport: stored.transport,
+    enabled: stored.enabled,
+    hasAuth: stored.apiKey !== undefined && stored.apiKey !== '',
+    permissions: stored.permissions,
+  });
 }
 
 /**
@@ -149,17 +247,21 @@ export function toPublicSettings(
 export function effectiveToolApprovals(
   defaults: PolicySettings['toolApprovals'],
   overrides: PolicySettings['toolApprovals'],
-  builtinNames: ReadonlySet<string>,
+  /**
+   * Gate tools only. Side-effect builtins (write_user, mcp_call, …) keep their
+   * own approval rule so a settings override can still require a decision.
+   */
+  gateNames: ReadonlySet<string>,
 ): PolicySettings['toolApprovals'] {
   const merged: PolicySettings['toolApprovals'] = { ...defaults };
   for (const [name, rule] of Object.entries(overrides)) {
-    if (builtinNames.has(name)) {
+    if (gateNames.has(name)) {
       merged[name] = 'always_allow';
       continue;
     }
     merged[name] = rule;
   }
-  for (const name of builtinNames) {
+  for (const name of gateNames) {
     merged[name] = 'always_allow';
   }
   return merged;
@@ -252,6 +354,37 @@ export function applySettingsUpdate(
     activeProviderId = providers[0]?.id ?? null;
   }
 
+  const agents = upsertNamed(
+    current.agents ?? [],
+    update.agents,
+    update.removeAgentIds,
+    upsertAgent,
+  );
+  const activeAgentId = nextActiveId(
+    current.activeAgentId ?? null,
+    update.activeAgentId,
+    agents.map((agent) => agent.id),
+  );
+
+  const searchProviders = upsertNamed(
+    current.searchProviders ?? [],
+    update.searchProviders,
+    update.removeSearchProviderIds,
+    upsertSearchProvider,
+  );
+  const activeSearchProviderId = nextActiveId(
+    current.activeSearchProviderId ?? null,
+    update.activeSearchProviderId,
+    searchProviders.map((provider) => provider.id),
+  );
+
+  const mcpServers = upsertNamed(
+    current.mcpServers ?? [],
+    update.mcpServers,
+    update.removeMcpServerIds,
+    upsertMcpServer,
+  );
+
   return {
     providers,
     activeProviderId,
@@ -269,7 +402,114 @@ export function applySettingsUpdate(
       askUserEnabled: update.policies?.askUserEnabled ?? current.policies.askUserEnabled ?? true,
       maxToolRounds: update.policies?.maxToolRounds ?? current.policies.maxToolRounds ?? 12,
     },
+    agents,
+    activeAgentId,
+    searchProviders,
+    activeSearchProviderId,
+    mcpServers,
+    compaction: {
+      strategy:
+        update.compaction?.strategy ?? current.compaction?.strategy ?? DEFAULT_COMPACTION.strategy,
+      targetPercent:
+        update.compaction?.targetPercent ??
+        current.compaction?.targetPercent ??
+        DEFAULT_COMPACTION.targetPercent,
+      keepRecent:
+        update.compaction?.keepRecent ??
+        current.compaction?.keepRecent ??
+        DEFAULT_COMPACTION.keepRecent,
+    },
   };
+}
+
+function nextActiveId(
+  current: string | null,
+  update: string | null | undefined,
+  ids: string[],
+): string | null {
+  const set = new Set(ids);
+  if (update !== undefined) {
+    if (update !== null && !set.has(update)) {
+      throw new Error(`Unknown id: ${update}`);
+    }
+    return update;
+  }
+  if (current !== null && !set.has(current)) return ids[0] ?? null;
+  if (current === null && ids.length > 0) return ids[0] ?? null;
+  return current;
+}
+
+function upsertNamed<TStored extends { id: string }, TWrite extends { id: string }>(
+  current: TStored[],
+  writes: TWrite[] | undefined,
+  removeIds: string[] | undefined,
+  upsert: (existing: TStored | undefined, write: TWrite) => TStored,
+): TStored[] {
+  const byId = new Map(current.map((entry) => [entry.id, entry]));
+  for (const id of removeIds ?? []) {
+    byId.delete(id);
+  }
+  for (const write of writes ?? []) {
+    byId.set(write.id, upsert(byId.get(write.id), write));
+  }
+  return [...byId.values()];
+}
+
+function upsertAgent(_current: AgentProfile | undefined, write: AgentProfileWrite): AgentProfile {
+  return {
+    id: write.id,
+    ...(write.label === undefined ? {} : { label: write.label }),
+    soul: write.soul,
+  };
+}
+
+function keepOptional<T>(write: T | undefined, current: T | undefined): { value?: T } {
+  if (write !== undefined) return { value: write };
+  if (current !== undefined) return { value: current };
+  return {};
+}
+
+function upsertSearchProvider(
+  current: StoredSearchProvider | undefined,
+  write: SearchProviderWrite,
+): StoredSearchProvider {
+  const label = keepOptional(write.label, current?.label);
+  const baseUrl = keepOptional(write.baseUrl, current?.baseUrl);
+  const next: StoredSearchProvider = {
+    id: write.id,
+    kind: write.kind,
+    ...(label.value === undefined ? {} : { label: label.value }),
+    ...(baseUrl.value === undefined ? {} : { baseUrl: baseUrl.value }),
+    ...(current?.apiKey === undefined ? {} : { apiKey: current.apiKey }),
+  };
+  if (write.apiKey === undefined) return next;
+  if (write.apiKey === null || write.apiKey === '') {
+    const { apiKey: _cleared, ...rest } = next;
+    return rest;
+  }
+  return { ...next, apiKey: write.apiKey };
+}
+
+function upsertMcpServer(
+  current: StoredMcpServer | undefined,
+  write: McpServerWrite,
+): StoredMcpServer {
+  const label = keepOptional(write.label, current?.label);
+  const next: StoredMcpServer = {
+    id: write.id,
+    url: write.url,
+    transport: write.transport ?? current?.transport ?? 'streamable-http',
+    enabled: write.enabled ?? current?.enabled ?? true,
+    permissions: write.permissions ?? current?.permissions ?? DEFAULT_MCP_PERMISSIONS,
+    ...(label.value === undefined ? {} : { label: label.value }),
+    ...(current?.apiKey === undefined ? {} : { apiKey: current.apiKey }),
+  };
+  if (write.apiKey === undefined) return next;
+  if (write.apiKey === null || write.apiKey === '') {
+    const { apiKey: _cleared, ...rest } = next;
+    return rest;
+  }
+  return { ...next, apiKey: write.apiKey };
 }
 
 export class InMemorySettingsStore implements SettingsStore {

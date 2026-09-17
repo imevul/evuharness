@@ -124,6 +124,20 @@ describe('applySettingsUpdate', () => {
     expect(cleared.providers[0]?.modelContextWindowOverrides).toEqual({ b: 1_024 });
   });
 
+  it('upserts agents and search providers without replacing siblings', () => {
+    const current = emptyStoredSettings();
+    current.agents = [{ id: 'guide', soul: 'old' }];
+
+    const next = applySettingsUpdate(current, {
+      agents: [{ id: 'poet', label: 'Poet', soul: 'verse' }],
+      searchProviders: [{ id: 'ddg', kind: 'duckduckgo', label: 'DuckDuckGo' }],
+    });
+
+    expect(next.agents.map((agent) => agent.id)).toEqual(['guide', 'poet']);
+    expect(next.searchProviders.map((provider) => provider.id)).toEqual(['ddg']);
+    expect(next.activeSearchProviderId).toBe('ddg');
+  });
+
   it('merges prompt patches without wiping sibling modes', () => {
     const current = emptyStoredSettings();
     current.prompts = { global: 'g0', perMode: { ask: 'a0', agent: 'ag0' } };

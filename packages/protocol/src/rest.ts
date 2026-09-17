@@ -152,6 +152,12 @@ export const HarnessFeaturesSnapshotSchema = z.object({
   settings: z.boolean(),
   effort: z.boolean(),
   attachments: z.boolean(),
+  agents: z.boolean().default(false),
+  memory: z.boolean().default(false),
+  webSearch: z.boolean().default(false),
+  httpRequest: z.boolean().default(false),
+  compaction: z.boolean().default(false),
+  mcp: z.boolean().default(false),
 });
 export type HarnessFeaturesSnapshot = z.infer<typeof HarnessFeaturesSnapshotSchema>;
 
@@ -202,6 +208,11 @@ export const ROUTES = {
   tools: '/tools',
   contextMenus: '/context-menus',
   contextMenuItems: (menuId: string) => `/context-menus/${menuId}/items`,
+  memoryUser: '/memory/user',
+  memories: '/memory',
+  memory: (id: string) => `/memory/${id}`,
+  compactionReset: (id: string) => `/sessions/${id}/compaction/reset`,
+  mcpHealth: (id: string) => `/mcp/${id}/test`,
 } as const;
 
 export const ChatMessageArraySchema = z.array(ChatMessageSchema);

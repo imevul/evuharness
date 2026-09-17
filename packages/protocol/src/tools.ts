@@ -46,15 +46,16 @@ export type ToolCatalogResponse = z.infer<typeof ToolCatalogResponseSchema>;
 /**
  * Runtime-owned tool names.
  *
- * These exist so the model can drive the gates. They are exempt from approval
- * because they cannot themselves cause a side effect: each one opens a gate that
- * a person resolves.
+ * Gate tools are exempt from approval because they cannot themselves cause a
+ * side effect: each one opens a gate that a person resolves. `report_progress`
+ * is exempt because it only writes a short user-visible note.
  */
 export const BUILTIN_TOOL_NAMES = {
   requestModeSwitch: 'request_mode_switch',
   proposePlan: 'propose_plan',
   askUser: 'ask_user',
   loadSkill: 'load_skill',
+  reportProgress: 'report_progress',
 } as const;
 
 export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[keyof typeof BUILTIN_TOOL_NAMES];

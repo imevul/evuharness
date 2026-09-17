@@ -11,6 +11,8 @@ import {
   type HarnessSettingsUpdate,
   type HealthResponse,
   type ListSessionsResponse,
+  type MemoryEntry,
+  type MemoryEntryWrite,
   type ModelListRequest,
   type ModelListResponse,
   type ModeSwitchDecisionRequest,
@@ -25,6 +27,7 @@ import {
   type StreamEvent,
   type ToolApprovalDecisionRequest,
   type ToolCatalogResponse,
+  type UserProfile,
 } from '@evu/harness-protocol';
 
 export interface HarnessClientOptions {
@@ -189,6 +192,37 @@ export class HarnessClient {
 
   updateSettings(body: HarnessSettingsUpdate): Promise<HarnessSettings> {
     return this.request(ROUTES.settings, { method: 'PATCH', json: body });
+  }
+
+  getUserProfile(): Promise<UserProfile> {
+    return this.request(ROUTES.memoryUser);
+  }
+
+  setUserProfile(text: string): Promise<UserProfile> {
+    return this.request(ROUTES.memoryUser, { method: 'PUT', json: { text } });
+  }
+
+  listMemories(query?: string): Promise<{ memories: MemoryEntry[] }> {
+    const params = query === undefined || query === '' ? '' : `?q=${encodeURIComponent(query)}`;
+    return this.request(`${ROUTES.memories}${params}`);
+  }
+
+  upsertMemory(body: MemoryEntryWrite): Promise<MemoryEntry> {
+    return body.id === undefined
+      ? this.request(ROUTES.memories, { method: 'POST', json: body })
+      : this.request(ROUTES.memory(body.id), { method: 'PATCH', json: body });
+  }
+
+  deleteMemory(id: string): Promise<void> {
+    return this.request(ROUTES.memory(id), { method: 'DELETE' });
+  }
+
+  resetCompaction(sessionId: string): Promise<void> {
+    return this.request(ROUTES.compactionReset(sessionId), { method: 'POST' });
+  }
+
+  probeMcp(serverId: string): Promise<ConnectionTestResult> {
+    return this.request(ROUTES.mcpHealth(serverId), { method: 'POST' });
   }
 
   testConnection(body: ConnectionTestRequest = {}): Promise<ConnectionTestResult> {

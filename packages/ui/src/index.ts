@@ -10,6 +10,11 @@
  */
 
 export { HarnessClient, type HarnessClientOptions, HarnessRequestError } from './client.js';
+export { AgentSettings, type AgentSettingsProps } from './components/AgentSettings.js';
+export {
+  CompactionSettingsPanel,
+  type CompactionSettingsProps,
+} from './components/CompactionSettings.js';
 export { Composer, type ComposerProps } from './components/Composer.js';
 export {
   ContextMenuPopup,
@@ -28,6 +33,8 @@ export {
   MarkdownView,
   type MarkdownViewProps,
 } from './components/MarkdownView.js';
+export { McpSettings, type McpSettingsProps } from './components/McpSettings.js';
+export { MemorySettings, type MemorySettingsProps } from './components/MemorySettings.js';
 export { Modal, type ModalProps } from './components/Modal.js';
 export {
   ModelPickerField,
@@ -51,10 +58,18 @@ export {
   ProviderSettings,
   type ProviderSettingsProps,
 } from './components/ProviderSettings.js';
+export { SearchSettings, type SearchSettingsProps } from './components/SearchSettings.js';
 export { SessionSidebar, type SessionSidebarProps } from './components/SessionSidebar.js';
 export { StatusBar, type StatusBarProps } from './components/StatusBar.js';
 export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCatalogView.js';
-export { Transcript, type TranscriptProps } from './components/Transcript.js';
+export {
+  formatWorkedDuration,
+  formatWorkedFor,
+  progressNoteText,
+  summarizeToolTrace,
+  Transcript,
+  type TranscriptProps,
+} from './components/Transcript.js';
 export { UsageFooter, type UsageFooterProps } from './components/UsageFooter.js';
 export {
   attachmentFromFile,
@@ -98,3 +113,4 @@ export {
   resolveActiveProviderSnapshot,
   resolveModelContextWindow,
 } from './provider-override.js';
+export { isNearBottom, SCROLL_BOTTOM_THRESHOLD_PX } from './scroll.js';

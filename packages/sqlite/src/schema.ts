@@ -79,5 +79,26 @@ export function openDatabase(options: OpenDatabaseOptions): DatabaseSync {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_profile (
+      id   INTEGER PRIMARY KEY CHECK (id = 1),
+      text TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memories (
+      id         TEXT PRIMARY KEY,
+      title      TEXT NOT NULL,
+      body       TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS memories_updated
+      ON memories (updated_at DESC)
+  `);
+
   return db;
 }

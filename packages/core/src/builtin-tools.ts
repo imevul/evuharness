@@ -2,11 +2,11 @@ import { BUILTIN_TOOL_NAMES } from '@evu/harness-protocol';
 import type { ToolDefinition } from './tools.js';
 
 /**
- * Runtime-owned gate tools.
+ * Runtime-owned tools offered in every stock mode.
  *
- * Registered so modes can offer them to the model. The turn loop intercepts
- * these names before the handler runs; the handlers exist only as a safe
- * fallback if a host somehow executes them outside the loop.
+ * Gate names are intercepted by the turn loop; their handlers are a safe
+ * fallback if a host executes them outside it. `report_progress` runs as a
+ * normal always-allow tool and only writes a user-visible note.
  */
 export function builtinGateTools(): ToolDefinition[] {
   return [
@@ -62,5 +62,31 @@ export function builtinGateTools(): ToolDefinition[] {
       builtin: true,
       handler: () => 'Mode switch request must be handled by the turn loop.',
     },
+    builtinProgressTool(),
   ];
+}
+
+/**
+ * Short user-visible status line. No side effects; the handler only acknowledges.
+ */
+export function builtinProgressTool(): ToolDefinition {
+  return {
+    name: BUILTIN_TOOL_NAMES.reportProgress,
+    description:
+      'Share a one- or two-sentence progress note with the user. Call this after thinking or after a tool result to say what you just did, what you will do next, or what you are checking. Do not use it for the final answer.',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description: 'One or two short sentences. No markdown, no lists.',
+        },
+      },
+      required: ['text'],
+    },
+    mutates: false,
+    approval: 'always_allow',
+    builtin: true,
+    handler: () => 'Noted.',
+  };
 }

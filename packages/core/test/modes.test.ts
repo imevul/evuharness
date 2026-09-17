@@ -50,6 +50,12 @@ function registryWithTools() {
       parameters: {},
       handler: () => 'ok',
     },
+    {
+      name: 'report_progress',
+      description: 'Progress note',
+      parameters: {},
+      handler: () => 'ok',
+    },
   ]);
 }
 
@@ -94,6 +100,7 @@ describe('mode tool selection', () => {
   it('makes gate tools available in every mode', () => {
     for (const mode of STOCK_MODES) {
       expect(mode.toolNames(ctx).has('ask_user')).toBe(true);
+      expect(mode.toolNames(ctx).has('report_progress')).toBe(true);
     }
   });
 

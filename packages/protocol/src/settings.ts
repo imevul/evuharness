@@ -125,21 +125,132 @@ export const PolicySettingsSchema = z.object({
 });
 export type PolicySettings = z.infer<typeof PolicySettingsSchema>;
 
+/** A named agent soul. The selected soul is composed into the system prompt. */
+export const AgentProfileSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().optional(),
+  soul: z.string().default(''),
+});
+export type AgentProfile = z.infer<typeof AgentProfileSchema>;
+
+export const AgentProfileWriteSchema = AgentProfileSchema;
+export type AgentProfileWrite = z.infer<typeof AgentProfileWriteSchema>;
+
+export const SearchProviderKindSchema = z.enum(['duckduckgo', 'searxng']);
+export type SearchProviderKind = z.infer<typeof SearchProviderKindSchema>;
+
+export const SearchProviderSchema = z.object({
+  id: z.string().min(1),
+  kind: SearchProviderKindSchema,
+  label: z.string().optional(),
+  /** Required for SearXNG. Ignored for DuckDuckGo. */
+  baseUrl: z.string().optional(),
+  hasApiKey: z.boolean().default(false),
+});
+export type SearchProvider = z.infer<typeof SearchProviderSchema>;
+
+export const SearchProviderWriteSchema = z.object({
+  id: z.string().min(1),
+  kind: SearchProviderKindSchema,
+  label: z.string().optional(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().nullable().optional(),
+});
+export type SearchProviderWrite = z.infer<typeof SearchProviderWriteSchema>;
+
+/**
+ * Per-server MCP policy. v1 only reads `default`; `tools` is reserved so a later
+ * per-tool editor does not need a schema break.
+ */
+export const McpPermissionsSchema = z.object({
+  default: ToolApprovalRuleSchema.default('requires_approval'),
+  tools: z.record(z.string(), ToolApprovalRuleSchema).default({}),
+});
+export type McpPermissions = z.infer<typeof McpPermissionsSchema>;
+
+export const McpServerSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().optional(),
+  url: z.string().url(),
+  transport: z.enum(['streamable-http', 'sse']).default('streamable-http'),
+  enabled: z.boolean().default(true),
+  hasAuth: z.boolean().default(false),
+  permissions: McpPermissionsSchema,
+});
+export type McpServer = z.infer<typeof McpServerSchema>;
+
+export const McpServerWriteSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().optional(),
+  url: z.string().url(),
+  transport: z.enum(['streamable-http', 'sse']).optional(),
+  enabled: z.boolean().optional(),
+  apiKey: z.string().nullable().optional(),
+  permissions: McpPermissionsSchema.optional(),
+});
+export type McpServerWrite = z.infer<typeof McpServerWriteSchema>;
+
+export const CompactionSettingsSchema = z.object({
+  strategy: z.enum(['rolling', 'drop', 'off']).default('rolling'),
+  targetPercent: z.number().int().min(1).max(100).default(75),
+  keepRecent: z.number().int().positive().default(16),
+});
+export type CompactionSettings = z.infer<typeof CompactionSettingsSchema>;
+
+export const MemoryEntrySchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  body: z.string(),
+  updatedAt: z.string(),
+});
+export type MemoryEntry = z.infer<typeof MemoryEntrySchema>;
+
+export const MemoryEntryWriteSchema = z.object({
+  id: z.string().min(1).optional(),
+  title: z.string().default(''),
+  body: z.string(),
+});
+export type MemoryEntryWrite = z.infer<typeof MemoryEntryWriteSchema>;
+
+export const UserProfileSchema = z.object({
+  text: z.string(),
+});
+export type UserProfile = z.infer<typeof UserProfileSchema>;
+
 export const HarnessSettingsSchema = z.object({
   providers: z.array(ProviderProfileSchema).default([]),
   activeProviderId: z.string().min(1).nullable().default(null),
   prompts: PromptSettingsSchema,
   policies: PolicySettingsSchema,
   modes: z.array(ChatModeIdSchema).default([]),
+  agents: z.array(AgentProfileSchema).default([]),
+  activeAgentId: z.string().min(1).nullable().default(null),
+  searchProviders: z.array(SearchProviderSchema).default([]),
+  activeSearchProviderId: z.string().min(1).nullable().default(null),
+  mcpServers: z.array(McpServerSchema).default([]),
+  compaction: CompactionSettingsSchema.default({
+    strategy: 'rolling',
+    targetPercent: 75,
+    keepRecent: 16,
+  }),
 });
 export type HarnessSettings = z.infer<typeof HarnessSettingsSchema>;
+
+/** Empty public settings, with schema defaults applied. Useful in tests and seeds. */
+export function emptyHarnessSettings(): HarnessSettings {
+  return HarnessSettingsSchema.parse({
+    prompts: {},
+    policies: {},
+  });
+}
 
 /**
  * Only supplied fields are changed, so a UI can patch one tab at a time.
  *
  * `providers` is an upsert-by-id, not a replace-all: a providers tab must not
  * wipe profiles a different tab did not send. Removals go through
- * `removeProviderIds` for the same reason.
+ * `removeProviderIds` for the same reason. Agents, search providers, and MCP
+ * servers follow the same upsert/remove pair.
  */
 export const HarnessSettingsUpdateSchema = z.object({
   activeProviderId: z.string().min(1).nullable().optional(),
@@ -147,6 +258,15 @@ export const HarnessSettingsUpdateSchema = z.object({
   removeProviderIds: z.array(z.string().min(1)).optional(),
   prompts: PromptSettingsSchema.partial().optional(),
   policies: PolicySettingsSchema.partial().optional(),
+  agents: z.array(AgentProfileWriteSchema).optional(),
+  removeAgentIds: z.array(z.string().min(1)).optional(),
+  activeAgentId: z.string().min(1).nullable().optional(),
+  searchProviders: z.array(SearchProviderWriteSchema).optional(),
+  removeSearchProviderIds: z.array(z.string().min(1)).optional(),
+  activeSearchProviderId: z.string().min(1).nullable().optional(),
+  mcpServers: z.array(McpServerWriteSchema).optional(),
+  removeMcpServerIds: z.array(z.string().min(1)).optional(),
+  compaction: CompactionSettingsSchema.partial().optional(),
 });
 export type HarnessSettingsUpdate = z.infer<typeof HarnessSettingsUpdateSchema>;
 

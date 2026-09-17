@@ -11,6 +11,7 @@ import {
 import {
   openDatabase,
   SqliteGrantStore,
+  SqliteMemoryStore,
   SqliteSessionStore,
   SqliteSettingsStore,
 } from '@evu/harness-sqlite';
@@ -426,5 +427,31 @@ describe('settings persistence', () => {
   it('returns empty settings when nothing has been written', async () => {
     const settings = new SqliteSettingsStore({ db });
     expect(await settings.get()).toEqual(emptyStoredSettings());
+  });
+});
+
+describe('memory persistence', () => {
+  it('round-trips USER.md and searchable MEMORY rows', async () => {
+    const store = new SqliteMemoryStore({ db });
+    await store.setUser('Name: Ada');
+    await store.upsert({
+      id: 'm1',
+      title: 'Decision',
+      body: 'Prefer list/call MCP.',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await store.upsert({
+      id: 'm2',
+      title: 'Noise',
+      body: 'unrelated',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    expect(await store.getUser()).toBe('Name: Ada');
+    expect(await store.list('list/call')).toEqual([
+      expect.objectContaining({ id: 'm1', title: 'Decision' }),
+    ]);
+    expect(await store.delete('m1')).toBe(true);
+    expect(await store.get('m1')).toBeNull();
   });
 });

@@ -231,6 +231,8 @@ describe('turn loop: streaming', () => {
       text: 'ship it',
       reasoning: 'plan A',
     });
+    expect(assistant?.startedAt).toEqual(expect.any(String));
+    expect(assistant?.createdAt).toEqual(expect.any(String));
     expect(stored?.messages.at(-1)).toMatchObject({
       role: 'assistant',
       content: 'ship it',
@@ -312,6 +314,30 @@ describe('turn loop: tool rounds', () => {
 
     expect(events.filter((event) => event.event === 'tool')).toHaveLength(2);
     expect(events.at(-1)).toMatchObject({ event: 'done', content: 'done' });
+  });
+
+  it('records report_progress without approval and keeps the note on the row', async () => {
+    const provider = new FakeProvider([
+      { events: toolEvents('c1', 'report_progress', { text: 'Checking the census next.' }) },
+      { events: textEvents('99k') },
+    ]);
+    const harness = runtime(provider);
+    const session = await harness.createSession({ mode: 'ask' });
+    const events = await collect(harness, session.id);
+    const stored = await harness.store.get(session.id);
+    const assistant = stored?.transcript.find((row) => row.kind === 'assistant');
+
+    expect(events.some((event) => event.event === 'tool' && event.name === 'report_progress')).toBe(
+      true,
+    );
+    expect(assistant?.tools).toEqual([
+      expect.objectContaining({
+        name: 'report_progress',
+        arguments: { text: 'Checking the census next.' },
+        result: 'Noted.',
+      }),
+    ]);
+    expect(events.at(-1)).toMatchObject({ event: 'done', content: '99k' });
   });
 
   it('stops at the configured round cap', async () => {

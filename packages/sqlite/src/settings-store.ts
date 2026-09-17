@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { SettingsStore, StoredSettings } from '@evu/harness-core';
-import { emptyStoredSettings } from '@evu/harness-core';
+import { emptyStoredSettings, normalizeStoredSettings } from '@evu/harness-core';
 import { asRow } from './rows.js';
 import { openDatabase } from './schema.js';
 
@@ -27,7 +27,7 @@ export class SqliteSettingsStore implements SettingsStore {
     if (row === undefined) {
       return emptyStoredSettings();
     }
-    return JSON.parse(row.payload) as StoredSettings;
+    return normalizeStoredSettings(JSON.parse(row.payload) as StoredSettings);
   }
 
   async put(settings: StoredSettings): Promise<void> {

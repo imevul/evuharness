@@ -39,6 +39,8 @@ export interface SessionRecord {
   pending: PendingGates;
   /** Session-level provider preference, distinct from a per-turn override. */
   provider?: ProviderOverride | undefined;
+  /** Rolling compaction cursor. Stored messages stay verbatim. */
+  compaction?: { summary: string; throughIndex: number; updatedAt: string } | undefined;
 }
 
 export const DEFAULT_SESSION_TITLE = 'New chat';

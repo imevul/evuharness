@@ -89,7 +89,7 @@ describe('health and status', () => {
       ready: true,
       modes: ['ask', 'plan', 'agent'],
       activeProvider: null,
-      toolCount: 4,
+      toolCount: 5,
       contextMenuCount: 2,
     });
   });
@@ -786,5 +786,34 @@ describe('auth hooks', () => {
   it('allows everything when no hooks are supplied', async () => {
     expect((await get('/status')).status).toBe(200);
     expect((await post('/sessions', { mode: 'ask' })).status).toBe(201);
+  });
+});
+
+describe('optional builtin routes', () => {
+  it('404s memory and compaction when the flags are off', async () => {
+    expect((await get('/memory/user')).status).toBe(404);
+    expect((await get('/memory')).status).toBe(404);
+    expect((await post('/sessions/session-1/compaction/reset')).status).toBe(404);
+    expect((await post('/mcp/any/test')).status).toBe(404);
+  });
+
+  it('serves USER.md and memories when memory is on', async () => {
+    app = createHarnessRouter({ harness: build({ features: { memory: true } }) });
+
+    expect(await (await get('/memory/user')).json()).toEqual({ text: '' });
+
+    const written = await app.request('/memory/user', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'Name: Ada' }),
+    });
+    expect(written.status).toBe(200);
+    expect(await written.json()).toEqual({ text: 'Name: Ada' });
+
+    const created = await post('/memory', { title: 'Note', body: 'Ship list/call.' });
+    expect(created.status).toBe(201);
+    expect(await (await get('/memory')).json()).toMatchObject({
+      memories: [expect.objectContaining({ title: 'Note' })],
+    });
   });
 });
