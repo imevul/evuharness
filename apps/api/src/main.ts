@@ -1,7 +1,22 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFilesystemSkillCatalog, createHarness, FakeProvider } from '@evu/harness-core';
+import {
+  createFilesystemSkillCatalog,
+  createHarness,
+  FakeProvider,
+  type GrantStore,
+  type MemoryStore,
+  type SessionStore,
+  type SettingsStore,
+} from '@evu/harness-core';
+import {
+  openPool,
+  PostgresGrantStore,
+  PostgresMemoryStore,
+  PostgresSessionStore,
+  PostgresSettingsStore,
+} from '@evu/harness-postgres';
 import { createHarnessRouter } from '@evu/harness-server';
 import {
   openDatabase,
@@ -14,7 +29,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { demoAuth } from './auth.js';
-import { loadConfig } from './config.js';
+import { type DemoConfig, loadConfig } from './config.js';
 import { demoMenus } from './demo-menus.js';
 import { demoTools } from './demo-tools.js';
 
@@ -29,25 +44,15 @@ const demoSkillsRoot = resolve(fileURLToPath(new URL('../skills', import.meta.ur
  */
 async function main(): Promise<void> {
   const config = loadConfig();
-
-  // SQLite will not create a missing parent directory, and the resulting error names
-  // the file rather than the directory, which is a confusing first-run experience.
-  if (config.databasePath !== ':memory:') {
-    await mkdir(dirname(resolve(config.databasePath)), { recursive: true });
-  }
-
-  // One connection shared by both stores. They write to different tables, and
-  // sharing it means a future change that needs a transaction across both can have
-  // one without re-plumbing.
-  const db = openDatabase({ path: config.databasePath });
+  const stores = await openStores(config);
 
   const skills = createFilesystemSkillCatalog({ roots: [demoSkillsRoot] });
 
   const harness = createHarness({
-    store: new SqliteSessionStore({ db }),
-    grants: new SqliteGrantStore({ db }),
-    settings: new SqliteSettingsStore({ db }),
-    memory: new SqliteMemoryStore({ db }),
+    store: stores.store,
+    grants: stores.grants,
+    settings: stores.settings,
+    memory: stores.memory,
     ...(config.fakeProvider ? { provider: new FakeProvider() } : {}),
     tools: demoTools({ includeEcho: config.fakeProvider }),
     skills,
@@ -112,7 +117,7 @@ async function main(): Promise<void> {
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
     console.info(`evuharness demo api listening on http://${config.host}:${info.port}`);
     console.info(`  auth: ${config.token === undefined ? 'disabled' : 'shared token'}`);
-    console.info(`  store: ${config.databasePath}`);
+    console.info(`  store: ${stores.label}`);
     if (config.fakeProvider) {
       console.info('  provider: fake (EVUHARNESS_FAKE_PROVIDER=1)');
     }
@@ -123,11 +128,55 @@ async function main(): Promise<void> {
     process.once(signal, () => {
       console.info(`${signal} received, shutting down`);
       server.close(() => {
-        db.close();
-        process.exit(0);
+        void stores.close().then(() => process.exit(0));
       });
     });
   }
+}
+
+/**
+ * SQLite unless `EVUHARNESS_DATABASE_URL` is set. One connection/pool is shared
+ * by all four stores. The URL is never logged.
+ */
+async function openStores(config: DemoConfig): Promise<{
+  store: SessionStore;
+  grants: GrantStore;
+  settings: SettingsStore;
+  memory: MemoryStore;
+  close: () => Promise<void>;
+  label: string;
+}> {
+  if (config.databaseUrl !== undefined) {
+    const pool = await openPool({ connectionString: config.databaseUrl });
+    return {
+      store: new PostgresSessionStore({ pool }),
+      grants: new PostgresGrantStore({ pool }),
+      settings: new PostgresSettingsStore({ pool }),
+      memory: new PostgresMemoryStore({ pool }),
+      close: async () => {
+        await pool.end();
+      },
+      label: 'postgres',
+    };
+  }
+
+  // SQLite will not create a missing parent directory, and the resulting error names
+  // the file rather than the directory, which is a confusing first-run experience.
+  if (config.databasePath !== ':memory:') {
+    await mkdir(dirname(resolve(config.databasePath)), { recursive: true });
+  }
+
+  const db = openDatabase({ path: config.databasePath });
+  return {
+    store: new SqliteSessionStore({ db }),
+    grants: new SqliteGrantStore({ db }),
+    settings: new SqliteSettingsStore({ db }),
+    memory: new SqliteMemoryStore({ db }),
+    close: async () => {
+      db.close();
+    },
+    label: config.databasePath,
+  };
 }
 
 function withAuth(token: string | undefined) {

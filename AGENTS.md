@@ -32,7 +32,8 @@ the consumer.
 - `packages/protocol` is schema-only. No runtime behavior, no HTTP, no React.
 - `packages/core` must stay free of HTTP frameworks, DOM access, and host domain
   types. It is the package a non-web surface imports.
-- `packages/sqlite` owns durable store implementations, not routes or UI.
+- `packages/sqlite` and `packages/postgres` own durable store implementations,
+  not routes or UI.
 - `packages/server` composes routes over `core`. It must not own reusable domain
   logic and must not ship host tools.
 - `packages/ui` may expose reusable React primitives bound to protocol types. It

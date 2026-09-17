@@ -12,6 +12,12 @@ export interface DemoConfig {
   /** SQLite file. `:memory:` keeps a throwaway run from leaving a file behind. */
   databasePath: string;
   /**
+   * When set, the demo uses Postgres instead of SQLite.
+   *
+   * Wins over `databasePath`. The value is a secret; do not log it.
+   */
+  databaseUrl: string | undefined;
+  /**
    * Shared token for the demo's auth hook. Unset means the demo is open.
    *
    * Deliberately not defaulted to a value: a hardcoded default token is worse than
@@ -58,6 +64,7 @@ export function loadConfig(): DemoConfig {
     // Defaults to a file next to the repo rather than `/data`, which only exists in
     // the container. Running the API directly should not need a root-owned path.
     databasePath: optional('EVUHARNESS_STORE_PATH') ?? '.data/harness.sqlite',
+    databaseUrl: optional('EVUHARNESS_DATABASE_URL'),
     token: optional('EVUHARNESS_DEV_TOKEN'),
     webOrigin: optional('EVUHARNESS_WEB_ORIGIN'),
     provider: {

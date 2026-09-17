@@ -14,6 +14,7 @@ const alias = {
   '@evu/harness-protocol': pkg('protocol'),
   '@evu/harness-core': pkg('core'),
   '@evu/harness-sqlite': pkg('sqlite'),
+  '@evu/harness-postgres': pkg('postgres'),
   '@evu/harness-server': pkg('server'),
   '@evu/harness-ui': pkg('ui'),
 };

@@ -19,7 +19,8 @@
 packages/
   protocol/   @evu/harness-protocol   schema-only wire contracts
   core/       @evu/harness-core       headless runtime
-  sqlite/     @evu/harness-sqlite     durable stores
+  sqlite/     @evu/harness-sqlite     durable SQLite stores
+  postgres/   @evu/harness-postgres   durable PostgreSQL stores
   server/     @evu/harness-server     HTTP/SSE routes
   ui/         @evu/harness-ui         React kit
 apps/
@@ -30,9 +31,9 @@ docs/         tracked documentation (`INTEGRATION.md`, `DESIGN.md`, …)
 scripts/      guard rails and dev helpers
 ```
 
-Dependency direction is one-way: `protocol` <- `core` <- {`sqlite`, `server`},
-and `ui` depends only on `protocol`. Apps may depend on anything. See the package
-boundary rules in [`../AGENTS.md`](../AGENTS.md).
+Dependency direction is one-way: `protocol` <- `core` <- {`sqlite`, `postgres`,
+`server`}, and `ui` depends only on `protocol`. Apps may depend on anything. See
+the package boundary rules in [`../AGENTS.md`](../AGENTS.md).
 
 ## Quality gates
 
@@ -103,7 +104,17 @@ runs `pnpm install` on start so a lockfile change updates the anonymous
 Ports are in the 43xx range to avoid colliding with sibling projects on 42xx.
 
 State is a SQLite file under a named volume, so the first stack is two services
-with no external database.
+with no external database. To use Postgres instead:
+
+```bash
+docker compose --project-directory . \
+  -f deploy/docker-compose.dev.yml \
+  -f deploy/docker-compose.postgres.yml \
+  up --build
+```
+
+That overlay starts `postgres:16` and sets `EVUHARNESS_DATABASE_URL` on the API.
+The same env var selects Postgres for `dev-native`. Do not log the URL.
 
 Optional demo auth: set `EVUHARNESS_DEV_TOKEN` to enable the shared-token hook on
 the API. It is a development convenience only — the demo refuses the token when
@@ -137,6 +148,8 @@ sources, so tests do not need a build step first.
 
 - Node environment by default; `packages/ui/test/**` runs in jsdom.
 - Place tests in `<package>/test/**/*.test.ts`.
+- Postgres store tests skip unless `EVUHARNESS_TEST_DATABASE_URL` is set. CI
+  sets it against a service container.
 
 Some suites are intentionally `skip`ped: they encode behavior that is specified
 but not yet implemented, and act as the checklist for the turn loop work. Do not

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
-  "description": "EvuHarness demo API: the harness runtime behind an HTTP/SSE server, with SQLite persistence.",
+  "description": "EvuHarness demo API: the harness runtime behind an HTTP/SSE server, with SQLite or Postgres persistence.",
   "type": "module",
   "scripts": {
     "prepublishOnly": "node ../../scripts/refuse-publish.mjs",
@@ -16,6 +16,7 @@
     "@evu/harness-core": "workspace:*",
     "@evu/harness-protocol": "workspace:*",
     "@evu/harness-server": "workspace:*",
+    "@evu/harness-postgres": "workspace:*",
     "@evu/harness-sqlite": "workspace:*",
     "@hono/node-server": "^1.14.4",
     "hono": "^4.9.10"

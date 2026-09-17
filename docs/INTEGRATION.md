@@ -71,10 +71,10 @@ compose-prompt section, no settings entry, and 404 on the matching routes.
 
 ### Stores
 
-In-memory stores ship on `core` and are enough for tests. Durable SQLite
-implementations live in `@evu/harness-sqlite` (`SqliteSessionStore`,
-`SqliteGrantStore`, `SqliteSettingsStore`, `SqliteMemoryStore`). Share one
-database connection across those stores.
+In-memory stores ship on `core` and are enough for tests. Durable implementations
+live in `@evu/harness-sqlite` and `@evu/harness-postgres` (session, grant,
+settings, and memory). Share one SQLite connection or one Postgres pool across
+those stores. The demo uses SQLite unless `EVUHARNESS_DATABASE_URL` is set.
 
 ### Identity
 

@@ -19,6 +19,7 @@ privately to the maintainer. Do not open a public issue for an unfixed finding.
   credential is configured, not the credential.
 - Attachments, prompts, and transcripts may contain user secrets. Treat session
   storage as sensitive at rest.
+- A Postgres connection string is a secret. Do not log `EVUHARNESS_DATABASE_URL`.
 
 ## Approval integrity
 

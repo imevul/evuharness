@@ -15,6 +15,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/core/package.json packages/core/
 COPY packages/sqlite/package.json packages/sqlite/
+COPY packages/postgres/package.json packages/postgres/
 COPY packages/server/package.json packages/server/
 COPY packages/ui/package.json packages/ui/
 COPY apps/api/package.json apps/api/

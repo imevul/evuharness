@@ -29,7 +29,8 @@ Bring your own tools and data sources; the harness handles the chat.
 | ----------------------- | ------------------------------------------------- |
 | `@evu/harness-protocol` | Wire contracts: sessions, events, gates, settings |
 | `@evu/harness-core`     | Headless runtime; no HTTP, no DOM                 |
-| `@evu/harness-sqlite`   | Durable session and grant stores                  |
+| `@evu/harness-sqlite`   | Durable session, grant, settings, and memory stores |
+| `@evu/harness-postgres` | The same four stores over PostgreSQL                |
 | `@evu/harness-server`   | HTTP/SSE routes over the runtime                  |
 | `@evu/harness-ui`       | React components bound to protocol types          |
 

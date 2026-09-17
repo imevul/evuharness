@@ -12,6 +12,7 @@
     { "path": "packages/protocol" },
     { "path": "packages/core" },
     { "path": "packages/sqlite" },
+    { "path": "packages/postgres" },
     { "path": "packages/server" },
     { "path": "packages/ui" },
     { "path": "apps/api" }

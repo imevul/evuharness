@@ -1,0 +1,31 @@
+# Overlay for the default dev compose. SQLite remains the default.
+#
+#   docker compose -f deploy/docker-compose.dev.yml -f deploy/docker-compose.postgres.yml up
+#
+# The connection string is a compose-internal credential for local development.
+# Do not reuse it outside this stack.
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: harness
+      POSTGRES_PASSWORD: harness
+      POSTGRES_DB: harness
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness -d harness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - harness_pg:/var/lib/postgresql/data
+
+  harness-api:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EVUHARNESS_DATABASE_URL: postgres://harness:harness@postgres:5432/harness
+
+volumes:
+  harness_pg:
