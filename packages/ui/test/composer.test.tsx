@@ -176,6 +176,49 @@ describe('Composer', () => {
     }
   });
 
+  it('inserts an attachment chip and forwards it on send', async () => {
+    const onSend = vi.fn();
+    const { container } = render(
+      <Composer
+        menus={[]}
+        fetchItems={vi.fn()}
+        modes={['ask']}
+        mode="ask"
+        onModeChange={() => undefined}
+        onSend={onSend}
+        attachmentsEnabled
+      />,
+    );
+
+    const fileInput = container.querySelector('[data-harness="composer-attach-input"]');
+    expect(fileInput).not.toBeNull();
+    if (!(fileInput instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const file = new File(['hello notes'], 'notes.txt', { type: 'text/plain' });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-kind="attachment"]')).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            kind: 'file',
+            name: 'notes.txt',
+            text: 'hello notes',
+          }),
+        ],
+      }),
+    );
+  });
+
   it('cycles draft mode with Shift+Tab without sending', () => {
     const onModeChange = vi.fn();
     render(

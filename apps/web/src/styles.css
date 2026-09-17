@@ -515,7 +515,7 @@ pre {
   background: var(--sunken);
   border-radius: var(--radius-sm);
   padding: var(--space-2);
-  overflow-x: auto;
+  overflow: auto;
   max-height: 240px;
 }
 

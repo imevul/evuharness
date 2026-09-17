@@ -237,6 +237,10 @@ The transcript frame (`data-harness="transcript-frame"`) owns stick-to-bottom.
 While the person is at the end of the scroller, new tokens and rows keep them
 there. Scrolling away unpins and shows a jump control
 (`data-harness="scroll-bottom"`) at the bottom center. Clicking it pins again.
+Thinking and tool panes (`[data-harness="reasoning"] pre` and
+`[data-harness="tool"] pre`) use the same pin as the transcript: follow only
+while that pane is at its end, unpin when the person scrolls it up, and resume
+when they scroll it back down. Each pane keeps its own pin.
 A host that remounts the transcript on session change (a `key` on the session
 id) lands at the latest row of the newly selected chat.
 

@@ -1,6 +1,8 @@
 import type {
+  AttachmentRef,
   ChatModeId,
   ContextMenuDescriptor,
+  ContextRef,
   HarnessFeaturesSnapshot,
   HarnessSettings,
   MemoryEntry,
@@ -115,11 +117,15 @@ export function App() {
   );
 
   const send = useCallback(
-    async (value: { text: string; refs: { menu: string; path: string[]; id: string }[] }) => {
+    async (value: { text: string; refs: ContextRef[]; attachments: AttachmentRef[] }) => {
       // No per-send override here on purpose. `ChatRequest.provider` still exists for
       // hosts that want one, but the demo offers a single session-scoped choice: two
       // override scopes on one screen were more chrome than the distinction earned.
-      await session.send({ text: value.text, refs: value.refs });
+      await session.send({
+        text: value.text,
+        refs: value.refs,
+        attachments: value.attachments,
+      });
       // Titles are derived from the first message, so the sidebar is stale until the
       // turn finishes.
       await refreshSessions();

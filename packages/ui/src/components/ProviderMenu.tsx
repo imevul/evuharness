@@ -230,7 +230,7 @@ export function ProviderMenu(props: ProviderMenuProps) {
           {!loading && error === null && (
             <>
               <Option
-                label="Auto"
+                label="Default"
                 hint={profile?.model ?? active?.model}
                 selected={value?.model === undefined}
                 onClick={() => {

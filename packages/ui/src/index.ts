@@ -113,4 +113,11 @@ export {
   resolveActiveProviderSnapshot,
   resolveModelContextWindow,
 } from './provider-override.js';
-export { isNearBottom, SCROLL_BOTTOM_THRESHOLD_PX } from './scroll.js';
+export {
+  isNearBottom,
+  isWorkScroller,
+  listWorkScrollers,
+  SCROLL_BOTTOM_THRESHOLD_PX,
+  WORK_SCROLL_THRESHOLD_PX,
+  WORK_SCROLLER_SELECTOR,
+} from './scroll.js';

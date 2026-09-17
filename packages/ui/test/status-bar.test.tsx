@@ -134,11 +134,11 @@ describe('StatusBar provider picker', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Model/ }));
     expect(onListModels).toHaveBeenCalledWith('local');
 
-    await waitFor(() => expect(optionLabels()).toEqual(['Auto', 'qwen3-30b', 'gpt-oss-20b']));
+    await waitFor(() => expect(optionLabels()).toEqual(['Default', 'qwen3-30b', 'gpt-oss-20b']));
     expect(flyout().getByText('32Ki')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Search models'), { target: { value: 'oss' } });
-    expect(optionLabels()).toEqual(['Auto', 'gpt-oss-20b']);
+    expect(optionLabels()).toEqual(['Default', 'gpt-oss-20b']);
 
     fireEvent.click(flyout().getByRole('button', { name: /gpt-oss-20b/ }));
     expect(onProviderChange).toHaveBeenCalledWith({ model: 'gpt-oss-20b' });

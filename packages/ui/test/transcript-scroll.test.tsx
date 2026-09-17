@@ -53,6 +53,47 @@ describe('Transcript scroll-to-latest', () => {
     expect(screen.queryByRole('button', { name: 'Scroll to latest' })).toBeNull();
   });
 
+  it('keeps a live thinking pane pinned as tokens arrive', () => {
+    const turn = (reasoning: string) => ({
+      phase: 'thinking' as const,
+      content: '',
+      reasoning,
+      tools: [] as const,
+      mode: 'agent' as const,
+    });
+
+    const { container, rerender } = render(<Transcript rows={[]} turn={turn('first')} />);
+    const pane = container.querySelector('[data-harness="reasoning"] pre');
+    expect(pane).not.toBeNull();
+    if (pane === null) {
+      return;
+    }
+
+    let scrollTop = 0;
+    Object.defineProperty(pane, 'scrollHeight', { configurable: true, get: () => 800 });
+    Object.defineProperty(pane, 'clientHeight', { configurable: true, get: () => 240 });
+    Object.defineProperty(pane, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+
+    rerender(<Transcript rows={[]} turn={turn('first then more thinking')} />);
+    expect(scrollTop).toBe(800);
+
+    scrollTop = 20;
+    fireEvent.scroll(pane);
+    rerender(<Transcript rows={[]} turn={turn('first then more thinking and still more')} />);
+    expect(scrollTop).toBe(20);
+
+    scrollTop = 560;
+    fireEvent.scroll(pane);
+    rerender(<Transcript rows={[]} turn={turn('first then more thinking and still more again')} />);
+    expect(scrollTop).toBe(800);
+  });
+
   it('keeps the jump control hidden while already at the bottom', () => {
     const { container } = render(<Transcript rows={[{ kind: 'assistant', text: 'hi' }]} />);
     const scroller = container.querySelector('[data-harness="transcript"]');

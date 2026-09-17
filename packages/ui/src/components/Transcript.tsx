@@ -1,7 +1,12 @@
 import { BUILTIN_TOOL_NAMES, type ToolEvent, type TranscriptRow } from '@evu/harness-protocol';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { LiveTurn } from '../hooks/session-live.js';
-import { isNearBottom } from '../scroll.js';
+import {
+  isNearBottom,
+  isWorkScroller,
+  listWorkScrollers,
+  WORK_SCROLL_THRESHOLD_PX,
+} from '../scroll.js';
 import { MarkdownView } from './MarkdownView.js';
 
 export interface TranscriptProps {
@@ -84,11 +89,14 @@ export function Transcript({ rows, turn = null, className }: TranscriptProps) {
 
 /**
  * Stay pinned to the newest row while the person is at the bottom. Scrolling
- * away unpins and shows the jump control; jumping pins again.
+ * away unpins and shows the jump control; jumping pins again. Thinking and tool
+ * panes keep their own pin so a capped `<pre>` follows new tokens the same way.
  */
 function useStickToBottom(rows: readonly TranscriptRow[], turn: LiveTurn | null) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
+  const nestedPinned = useRef(new WeakMap<HTMLElement, boolean>());
+  const boundWork = useRef(new Set<HTMLElement>());
   const [showJump, setShowJump] = useState(false);
 
   const syncFromScroll = useCallback(() => {
@@ -102,13 +110,64 @@ function useStickToBottom(rows: readonly TranscriptRow[], turn: LiveTurn | null)
     setShowJump(overflow && !atBottom);
   }, []);
 
-  const stickIfPinned = useCallback(() => {
-    const el = scrollerRef.current;
-    if (el === null || !pinnedRef.current) {
+  const onWorkScroll = useCallback((event: Event) => {
+    if (!isWorkScroller(event.target)) {
       return;
     }
-    el.scrollTop = el.scrollHeight;
+    // Read the pane itself. Nested scroll does not reliably reach a parent
+    // listener, even in capture, so pin state has to be updated here.
+    nestedPinned.current.set(event.target, isNearBottom(event.target, WORK_SCROLL_THRESHOLD_PX));
   }, []);
+
+  const bindWorkScrollers = useCallback(
+    (root: HTMLElement) => {
+      const live = new Set(listWorkScrollers(root));
+      for (const pane of boundWork.current) {
+        if (live.has(pane)) {
+          continue;
+        }
+        pane.removeEventListener('scroll', onWorkScroll);
+        boundWork.current.delete(pane);
+      }
+      for (const pane of live) {
+        if (boundWork.current.has(pane)) {
+          continue;
+        }
+        boundWork.current.add(pane);
+        pane.addEventListener('scroll', onWorkScroll, { passive: true });
+      }
+    },
+    [onWorkScroll],
+  );
+
+  const stickNestedIfPinned = useCallback((root: HTMLElement) => {
+    for (const pane of listWorkScrollers(root)) {
+      if (nestedPinned.current.get(pane) === false) {
+        continue;
+      }
+      pane.scrollTop = pane.scrollHeight;
+      nestedPinned.current.set(pane, true);
+    }
+  }, []);
+
+  const pinNested = useCallback((root: HTMLElement) => {
+    for (const pane of listWorkScrollers(root)) {
+      nestedPinned.current.set(pane, true);
+      pane.scrollTop = pane.scrollHeight;
+    }
+  }, []);
+
+  const stickIfPinned = useCallback(() => {
+    const el = scrollerRef.current;
+    if (el === null) {
+      return;
+    }
+    bindWorkScrollers(el);
+    if (pinnedRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+    stickNestedIfPinned(el);
+  }, [bindWorkScrollers, stickNestedIfPinned]);
 
   const jumpToLatest = useCallback(() => {
     const el = scrollerRef.current;
@@ -117,8 +176,9 @@ function useStickToBottom(rows: readonly TranscriptRow[], turn: LiveTurn | null)
     }
     pinnedRef.current = true;
     el.scrollTop = el.scrollHeight;
+    pinNested(el);
     setShowJump(false);
-  }, []);
+  }, [pinNested]);
 
   // Re-run when the transcript grows, not because the callbacks changed.
   useLayoutEffect(() => {
@@ -138,6 +198,7 @@ function useStickToBottom(rows: readonly TranscriptRow[], turn: LiveTurn | null)
       syncFromScroll();
     };
     el.addEventListener('scroll', onScroll, { passive: true });
+    bindWorkScrollers(el);
 
     const resize =
       typeof ResizeObserver === 'undefined'
@@ -155,8 +216,12 @@ function useStickToBottom(rows: readonly TranscriptRow[], turn: LiveTurn | null)
     return () => {
       el.removeEventListener('scroll', onScroll);
       resize?.disconnect();
+      for (const pane of boundWork.current) {
+        pane.removeEventListener('scroll', onWorkScroll);
+      }
+      boundWork.current.clear();
     };
-  }, [stickIfPinned, syncFromScroll]);
+  }, [bindWorkScrollers, onWorkScroll, stickIfPinned, syncFromScroll]);
 
   return { scrollerRef, showJump, jumpToLatest };
 }
