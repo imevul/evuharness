@@ -41,6 +41,11 @@ export const ProviderProfileSchema = z.object({
   modelContextWindows: ModelContextWindowsSchema.default({}),
   /** Per-model overrides. When set, they win over the catalog for that id. */
   modelContextWindowOverrides: ModelContextWindowsSchema.default({}),
+  /**
+   * Offered in the status-bar picker. The settings default is a separate field
+   * (`activeProviderId`) and must be one of the active profiles.
+   */
+  active: z.boolean().default(true),
 });
 export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
 
@@ -65,6 +70,7 @@ export const ProviderProfileWriteSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   modelContextWindows: ModelContextWindowsSchema.optional(),
   modelContextWindowOverrides: ModelContextWindowOverridesWriteSchema.optional(),
+  active: z.boolean().optional(),
 });
 export type ProviderProfileWrite = z.infer<typeof ProviderProfileWriteSchema>;
 
@@ -125,11 +131,17 @@ export const PolicySettingsSchema = z.object({
 });
 export type PolicySettings = z.infer<typeof PolicySettingsSchema>;
 
-/** A named agent soul. The selected soul is composed into the system prompt. */
+/**
+ * A named agent soul.
+ *
+ * Several profiles may be `active` at once; those are offered in the
+ * status-bar picker. A session picks one agent or None (no soul).
+ */
 export const AgentProfileSchema = z.object({
   id: z.string().min(1),
   label: z.string().optional(),
   soul: z.string().default(''),
+  active: z.boolean().default(true),
 });
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
 
@@ -224,7 +236,6 @@ export const HarnessSettingsSchema = z.object({
   policies: PolicySettingsSchema,
   modes: z.array(ChatModeIdSchema).default([]),
   agents: z.array(AgentProfileSchema).default([]),
-  activeAgentId: z.string().min(1).nullable().default(null),
   searchProviders: z.array(SearchProviderSchema).default([]),
   activeSearchProviderId: z.string().min(1).nullable().default(null),
   mcpServers: z.array(McpServerSchema).default([]),
@@ -260,7 +271,6 @@ export const HarnessSettingsUpdateSchema = z.object({
   policies: PolicySettingsSchema.partial().optional(),
   agents: z.array(AgentProfileWriteSchema).optional(),
   removeAgentIds: z.array(z.string().min(1)).optional(),
-  activeAgentId: z.string().min(1).nullable().optional(),
   searchProviders: z.array(SearchProviderWriteSchema).optional(),
   removeSearchProviderIds: z.array(z.string().min(1)).optional(),
   activeSearchProviderId: z.string().min(1).nullable().optional(),

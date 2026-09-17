@@ -1,6 +1,7 @@
 import {
   GateNotFoundError,
   type Harness,
+  setSessionAgent,
   setSessionMode,
   setSessionProvider,
   withSessionLock,
@@ -19,6 +20,7 @@ import {
   ModelListRequestSchema,
   ModeSwitchDecisionRequestSchema,
   PromptPreviewRequestSchema,
+  SetAgentRequestSchema,
   SetModeRequestSchema,
   SetProviderRequestSchema,
   SSE_KEEPALIVE_INTERVAL_MS,
@@ -230,6 +232,43 @@ export function createHarnessRouter(options: HarnessRouterOptions): Hono {
         return null;
       }
       await harness.store.upsert(setSessionProvider(record, override));
+      return harness.getSession(id);
+    });
+    if (session === null) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+    return c.json(session);
+  });
+
+  /**
+   * Persist a session-level agent pin, or clear it so the turn uses no agent.
+   */
+  app.post('/sessions/:id/set-agent', async (c) => {
+    const rejection = await guard(c.req.raw, CAPABILITIES.chat);
+    if (rejection !== null) {
+      return c.json(rejection.body, rejection.status);
+    }
+
+    const parsed = SetAgentRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', detail: parsed.error.message }, 400);
+    }
+
+    const id = c.req.param('id');
+    const agentId = parsed.data.agentId;
+    if (agentId !== null) {
+      const settings = await harness.getSettings();
+      if (!settings.agents.some((agent) => agent.id === agentId)) {
+        return c.json({ error: 'invalid_request', detail: `Unknown agent: ${agentId}` }, 400);
+      }
+    }
+
+    const session = await withSessionLock(harness.store, id, async () => {
+      const record = await harness.store.get(id);
+      if (record === null) {
+        return null;
+      }
+      await harness.store.upsert(setSessionAgent(record, agentId));
       return harness.getSession(id);
     });
     if (session === null) {

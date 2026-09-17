@@ -22,6 +22,7 @@ import type {
   UserProfile,
 } from '@evu/harness-protocol';
 import { BUILTIN_TOOL_NAMES, isBuiltinToolName } from '@evu/harness-protocol';
+import { resolveSessionAgents, soulsForPrompt } from './agents.js';
 import { builtinMcpTools } from './builtin-mcp-tools.js';
 import { builtinMemoryTools } from './builtin-memory-tools.js';
 import { builtinGateTools } from './builtin-tools.js';
@@ -371,11 +372,14 @@ export function createHarness(config: HarnessConfig = {}): Harness {
     return seeded;
   }
 
-  async function composeExtras(stored: Awaited<ReturnType<typeof loadStored>>) {
-    const soul =
+  async function composeExtras(
+    stored: Awaited<ReturnType<typeof loadStored>>,
+    sessionAgentId?: string,
+  ) {
+    const souls =
       features.agents !== true
-        ? undefined
-        : stored.agents.find((agent) => agent.id === stored.activeAgentId)?.soul;
+        ? []
+        : soulsForPrompt(resolveSessionAgents(stored.agents, sessionAgentId));
     const userProfile =
       features.memory !== true ? undefined : capUserProfile(await memoryStore.getUser());
     let mcpSnapshot: string | undefined;
@@ -397,7 +401,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       }
     }
     return {
-      ...(soul === undefined || soul.trim() === '' ? {} : { soul }),
+      ...(souls.length === 0 ? {} : { souls }),
       ...(userProfile === undefined || userProfile === '' ? {} : { userProfile }),
       ...(mcpSnapshot === undefined ? {} : { mcpSnapshot }),
     };
@@ -526,7 +530,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
       scope,
       sessionId: record.id,
       skills: await skillSummaries(),
-      ...(await composeExtras(stored)),
+      ...(await composeExtras(stored, record.agentId)),
     });
 
     return createTurnPin({
@@ -790,6 +794,10 @@ export function createHarness(config: HarnessConfig = {}): Harness {
         throw new Error(`Unknown mode: ${input.mode}`);
       }
       const stored = await loadStored();
+      let sessionAgentId: string | undefined;
+      if (input.sessionId !== undefined) {
+        sessionAgentId = (await store.get(input.sessionId))?.agentId;
+      }
       return composePrompt({
         mode: input.mode,
         modes,
@@ -797,7 +805,7 @@ export function createHarness(config: HarnessConfig = {}): Harness {
         scope: input.scope ?? {},
         ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
         skills: await skillSummaries(),
-        ...(await composeExtras(stored)),
+        ...(await composeExtras(stored, sessionAgentId)),
       });
     },
 

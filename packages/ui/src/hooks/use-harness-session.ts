@@ -38,6 +38,10 @@ export interface HarnessSessionState {
    * settings profiles.
    */
   setSessionProvider: (provider: ProviderOverride | null) => Promise<void>;
+  /**
+   * Pin one agent for this session, or `null` to use no agent.
+   */
+  setSessionAgent: (agentId: string | null) => Promise<void>;
   send: (input: {
     text: string;
     refs?: ContextRef[];
@@ -400,6 +404,22 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     [client, sessionId],
   );
 
+  const setSessionAgent = useCallback(
+    async (agentId: string | null) => {
+      if (sessionId === null) {
+        return;
+      }
+      try {
+        const detail = await client.setAgent(sessionId, { agentId });
+        setSession(detail);
+        setError(null);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'set_agent_failed');
+      }
+    },
+    [client, sessionId],
+  );
+
   return {
     session,
     transcript,
@@ -409,6 +429,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     draftMode,
     setDraftMode,
     setSessionProvider,
+    setSessionAgent,
     send,
     cancel,
     decideToolApproval,

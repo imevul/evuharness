@@ -293,7 +293,7 @@ The system prompt is composed, not stored:
 global prompt
 + mode blurb
 + per-mode prompt
-+ soul (active agent, when `features.agents` is on)
++ souls (the session-pinned agent, when `features.agents` is on; none when unset)
 + user (capped USER.md, when `features.memory` is on)
 + mcp snapshot (server labels and tool names, when `features.mcp` is on)
 + dynamic slots (host-provided, evaluated per session)
@@ -307,8 +307,9 @@ a person can see exactly what the model will receive, including dynamic content.
 
 When a host opts in:
 
-- **Agents** are named souls (`id`, `label`, `soul`). The active soul is composed
-  after per-mode text.
+- **Agents** are named souls (`id`, `label`, `soul`, `active`). Several may be
+  active at once; those are offered in the status-bar picker. A session picks
+  one agent or None (no soul is composed).
 - **Memory** is a store outside settings: singleton USER.md (standing facts and
   preferences about the person) and searchable MEMORY rows (everything else that
   should persist across chats). Tools: `read_user` / `write_user` /
@@ -344,8 +345,10 @@ applies. Hosts replace the hook, or pass an identity function to disable it.
 ## Providers
 
 Providers are named profiles: a base URL, credentials, a model list, and effort
-capabilities. A session or a single turn may override provider, model, and
-effort. Settings can list available models and test a connection.
+capabilities. Several profiles may be active (offered in the status-bar picker);
+exactly one is the settings default (`activeProviderId`). A session or a single
+turn may override provider, model, and effort among the active profiles.
+Settings can list available models and test a connection.
 
 Max context tokens are per model id, not one number on the provider. The catalog
 from `GET /v1/models` supplies each listed model's window when the host publishes

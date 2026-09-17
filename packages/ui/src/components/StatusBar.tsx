@@ -1,5 +1,6 @@
 import type {
   ActiveProviderSnapshot,
+  AgentProfile,
   ModelCatalogEntry,
   ProviderOverride,
   ProviderProfile,
@@ -26,6 +27,11 @@ export interface StatusBarProps {
   onListModels?: (providerId: string) => Promise<readonly ModelCatalogEntry[]>;
   /** No session to pin an override to yet. */
   pickerDisabled?: boolean;
+  /** Agents offered in the session picker. Inactive profiles are ignored. */
+  agents?: readonly AgentProfile[];
+  /** Session pin of one agent. Unset means no agent. */
+  agentId?: string | null;
+  onAgentChange?: (agentId: string | null) => void;
 }
 
 /**
@@ -50,7 +56,15 @@ export function StatusBar(props: StatusBarProps) {
     onProviderChange,
     onListModels,
     pickerDisabled = false,
+    agents = [],
+    agentId = null,
+    onAgentChange,
   } = props;
+
+  const pickerProviders = providers.filter(
+    (profile) => profile.active || profile.id === override?.providerId,
+  );
+  const pickerAgents = agents.filter((agent) => agent.active || agent.id === (agentId ?? ''));
 
   const max = provider?.contextWindow;
   const used = usage.lastPromptTokens;
@@ -74,7 +88,7 @@ export function StatusBar(props: StatusBarProps) {
         readout
       ) : (
         <ProviderPicker
-          providers={providers}
+          providers={pickerProviders}
           override={override ?? null}
           onChange={onProviderChange}
           active={provider}
@@ -85,11 +99,135 @@ export function StatusBar(props: StatusBarProps) {
         </ProviderPicker>
       )}
 
+      {onAgentChange !== undefined && pickerAgents.length > 0 && (
+        <AgentPicker
+          agents={pickerAgents}
+          agentId={agentId}
+          disabled={pickerDisabled}
+          onChange={onAgentChange}
+        />
+      )}
+
       {max !== undefined && percent !== null && (
         <ContextDonut used={used} max={max} percent={percent} />
       )}
     </div>
   );
+}
+
+function AgentPicker({
+  agents,
+  agentId,
+  disabled,
+  onChange,
+}: {
+  agents: readonly AgentProfile[];
+  agentId: string | null;
+  disabled: boolean;
+  onChange: (agentId: string | null) => void;
+}) {
+  const popoverId = useId();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const pinned = agentId !== null && agents.some((agent) => agent.id === agentId);
+
+  useEffect(() => {
+    if (!open) return;
+
+    focusableWithin(popoverRef.current)[0]?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && rootRef.current?.contains(target) === true) return;
+      setOpen(false);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('mousedown', onPointerDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [open]);
+
+  const choose = (next: string | null) => {
+    onChange(next);
+    setOpen(false);
+  };
+
+  return (
+    <span ref={rootRef} data-harness="status-agent-picker">
+      <button
+        ref={triggerRef}
+        type="button"
+        data-harness="status-agent-trigger"
+        data-overridden={pinned}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? popoverId : undefined}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span data-harness="status-agent">{agentReadout(agents, agentId)}</span>
+        <span data-harness="status-provider-caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          id={popoverId}
+          role="listbox"
+          aria-label="Agent for this chat"
+          data-harness="status-agent-popover"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={!pinned}
+            data-harness="status-agent-option"
+            data-selected={!pinned}
+            onClick={() => choose(null)}
+          >
+            None
+          </button>
+          {agents.map((agent) => (
+            <button
+              key={agent.id}
+              type="button"
+              role="option"
+              aria-selected={agent.id === agentId}
+              data-harness="status-agent-option"
+              data-selected={agent.id === agentId}
+              onClick={() => choose(agent.id)}
+            >
+              {agent.label ?? agent.id}
+            </button>
+          ))}
+          <p data-harness="status-provider-hint">
+            None uses no agent. A pick applies to this chat only.
+          </p>
+        </div>
+      )}
+    </span>
+  );
+}
+
+export function agentReadout(agents: readonly AgentProfile[], agentId: string | null): string {
+  if (agentId === null) {
+    return 'None';
+  }
+  const pinned = agents.find((agent) => agent.id === agentId);
+  return pinned?.label ?? pinned?.id ?? agentId;
 }
 
 function hasOverride(override: ProviderOverride | null): boolean {

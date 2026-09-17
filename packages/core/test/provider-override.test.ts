@@ -11,11 +11,13 @@ const LOCAL: StoredProviderProfile = {
   id: 'local',
   baseUrl: 'https://local.test/v1',
   model: 'local-model',
+  models: [],
   supportsEffort: true,
   supportsReasoning: false,
   timeoutMs: 120_000,
   modelContextWindows: { 'local-model': 8_192 },
   modelContextWindowOverrides: {},
+  active: true,
 };
 
 const CLOUD: StoredProviderProfile = {
@@ -23,11 +25,13 @@ const CLOUD: StoredProviderProfile = {
   label: 'Cloud',
   baseUrl: 'https://cloud.test/v1',
   model: 'cloud-model',
+  models: [],
   supportsEffort: true,
   supportsReasoning: true,
   timeoutMs: 120_000,
   modelContextWindows: { 'cloud-model': 128_000, 'bigger-model': 200_000 },
   modelContextWindowOverrides: {},
+  active: true,
 };
 
 const profiles = new Map<string, StoredProviderProfile>([

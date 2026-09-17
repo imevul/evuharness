@@ -20,6 +20,7 @@ import {
   type PromptPreviewRequest,
   ROUTES,
   type SessionDetail,
+  type SetAgentRequest,
   type SetModeRequest,
   type SetProviderRequest,
   SseDecoder,
@@ -156,6 +157,15 @@ export class HarnessClient {
    */
   setProvider(id: string, body: SetProviderRequest): Promise<SessionDetail> {
     return this.request(ROUTES.setProvider(id), { method: 'POST', json: body });
+  }
+
+  /**
+   * Persist a session-level agent pin, or clear it with `agentId: null`.
+   *
+   * Null means no agent. Does not rewrite agent profiles.
+   */
+  setAgent(id: string, body: SetAgentRequest): Promise<SessionDetail> {
+    return this.request(ROUTES.setAgent(id), { method: 'POST', json: body });
   }
 
   cancel(id: string, reason: 'operator' | 'follow_up' = 'operator'): Promise<void> {

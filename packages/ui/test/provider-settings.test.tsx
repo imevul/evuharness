@@ -21,8 +21,11 @@ function profile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
     models: [],
     hasApiKey: false,
     supportsEffort: false,
+    supportsReasoning: false,
+    timeoutMs: 120_000,
     modelContextWindows: {},
     modelContextWindowOverrides: {},
+    active: true,
     ...overrides,
   };
 }
@@ -55,17 +58,29 @@ function renderSettings(
 }
 
 describe('ProviderSettings list', () => {
-  it('marks the active profile and offers Use on the others', async () => {
+  it('marks the default profile and offers Set as default on the others', async () => {
     const settings = settingsWith([profile(), profile({ id: 'cloud', label: 'Cloud' })], 'local');
     const { onChange } = renderSettings(settings);
 
     const rows = document.querySelectorAll('[data-harness="provider-row"]');
     expect(rows[0]?.getAttribute('data-active')).toBe('true');
     expect(rows[1]?.getAttribute('data-active')).toBe('false');
-    expect(screen.getAllByText('Active')).toHaveLength(1);
+    expect(screen.getAllByText('Default')).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Use' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set as default' }));
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({ activeProviderId: 'cloud' }));
+  });
+
+  it('toggles whether a profile is offered in the picker', async () => {
+    const settings = settingsWith([profile(), profile({ id: 'cloud', label: 'Cloud' })], 'local');
+    const { onChange } = renderSettings(settings);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Disable Cloud' }));
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        providers: [expect.objectContaining({ id: 'cloud', active: false })],
+      }),
+    );
   });
 
   it('shows the effective context window per row', () => {

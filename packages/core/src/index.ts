@@ -5,6 +5,7 @@
  * directly, and the package the server adapter wraps.
  */
 
+export * from './agents.js';
 export * from './attachments.js';
 export * from './builtin-mcp-tools.js';
 export * from './builtin-memory-tools.js';

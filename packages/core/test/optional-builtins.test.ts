@@ -2,6 +2,7 @@ import {
   capUserProfile,
   createHarness,
   InMemoryMemoryStore,
+  setSessionAgent,
   USER_PROMPT_CHAR_BUDGET,
 } from '@evu/harness-core';
 import { describe, expect, it } from 'vitest';
@@ -80,20 +81,66 @@ describe('soul and user prompt sections', () => {
       prompts: { global: 'global text', perMode: { ask: 'ask text' } },
     });
     await harness.updateSettings({
-      agents: [{ id: 'guide', label: 'Guide', soul: 'Speak like a careful editor.' }],
-      activeAgentId: 'guide',
+      agents: [{ id: 'guide', label: 'Guide', soul: 'Speak like a careful editor.', active: true }],
     });
+    const session = await harness.createSession({ mode: 'ask' });
+    const record = await harness.store.get(session.id);
+    if (record === null) {
+      throw new Error('missing session');
+    }
+    await harness.store.upsert(setSessionAgent(record, 'guide'));
 
-    const preview = await harness.previewPrompt({ mode: 'ask' });
+    const preview = await harness.previewPrompt({ mode: 'ask', sessionId: session.id });
     expect(preview.sections.map((section) => section.id)).toEqual([
       'global',
       'mode',
       'mode:ask',
-      'soul',
+      'soul:guide',
     ]);
-    expect(preview.sections.find((section) => section.id === 'soul')?.text).toBe(
+    expect(preview.sections.find((section) => section.id === 'soul:guide')?.text).toBe(
       'Speak like a careful editor.',
     );
+  });
+
+  it('composes no soul when the session has no agent pin', async () => {
+    const harness = createHarness({
+      features: { agents: true },
+      prompts: { global: 'g' },
+    });
+    await harness.updateSettings({
+      agents: [
+        { id: 'guide', label: 'Guide', soul: 'Be careful.', active: true },
+        { id: 'poet', label: 'Poet', soul: 'Write verse.', active: true },
+      ],
+    });
+
+    const preview = await harness.previewPrompt({ mode: 'ask' });
+    expect(preview.sections.filter((section) => section.id.startsWith('soul:'))).toEqual([]);
+    expect(preview.text).not.toContain('Be careful.');
+    expect(preview.text).not.toContain('Write verse.');
+  });
+
+  it('composes only the session-pinned soul, even when that agent is inactive', async () => {
+    const harness = createHarness({ features: { agents: true } });
+    await harness.updateSettings({
+      agents: [
+        { id: 'guide', soul: 'Be careful.', active: true },
+        { id: 'poet', soul: 'Write verse.', active: false },
+      ],
+    });
+    const session = await harness.createSession({ mode: 'ask' });
+    const record = await harness.store.get(session.id);
+    if (record === null) {
+      throw new Error('missing session');
+    }
+    await harness.store.upsert(setSessionAgent(record, 'poet'));
+
+    const preview = await harness.previewPrompt({ mode: 'ask', sessionId: session.id });
+    expect(
+      preview.sections.filter((section) => section.id.startsWith('soul:')).map((s) => s.id),
+    ).toEqual(['soul:poet']);
+    expect(preview.text).toContain('Write verse.');
+    expect(preview.text).not.toContain('Be careful.');
   });
 
   it('omits soul when the agents flag is off even if a profile is stored', async () => {
@@ -102,12 +149,11 @@ describe('soul and user prompt sections', () => {
       prompts: { global: 'g' },
     });
     await harness.updateSettings({
-      agents: [{ id: 'guide', soul: 'hidden soul' }],
-      activeAgentId: 'guide',
+      agents: [{ id: 'guide', soul: 'hidden soul', active: true }],
     });
 
     const preview = await harness.previewPrompt({ mode: 'ask' });
-    expect(preview.sections.map((section) => section.id)).not.toContain('soul');
+    expect(preview.sections.map((section) => section.id)).not.toContain('soul:guide');
     expect(preview.text).not.toContain('hidden soul');
   });
 

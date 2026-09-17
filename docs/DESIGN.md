@@ -140,7 +140,10 @@ effective provider and model after those layers.
 model, and it is on screen during every turn, so a separate always-open override
 panel above the composer was permanent chrome restating one line of text.
 `StatusBar` takes `providers` plus `onProviderChange` and turns the readout into a
-popover over `ProviderMenu`; without those props it stays display-only.
+popover over `ProviderMenu`; without those props it stays display-only. Only
+`active` provider profiles appear in that picker. When `features.agents` is on,
+the bar also offers an agent dropdown: None uses no agent, and a pick pins one
+agent on the session.
 
 `ProviderMenu` is rows, not stacked selects: Provider, Model, Effort, and a
 read-only Context, each stating its current value in place so the common case —
@@ -173,12 +176,16 @@ to the kit.
 
 Named profiles are a list, and editing is a dialog. An always-open form has to
 show one profile at a time and then cannot say which profile turns actually use —
-"the row I am editing" and "the active profile" are different facts and both have
-to be on screen. So the list carries the active badge, `Use`, and icon buttons for
-edit and delete; delete goes through a confirm.
+"the row I am editing" and "the default profile" are different facts and both have
+to be on screen. So the list carries an iOS-style active switch (offered in the
+picker), a Default badge or Set as default, and icon buttons for edit and delete;
+delete goes through a confirm. The switch is `Toggle` (`role="switch"`,
+`data-harness="toggle"`) — style-free in the kit; the demo paints it as an
+iOS-style pill.
 
 The same list-plus-modal chrome is reused for optional builtins that a host
-turns on: Agents (soul textarea), Search (DuckDuckGo / SearXNG), and MCP
+turns on: Agents (soul textarea plus the same active switch — several souls may
+be on at once), Search (DuckDuckGo / SearXNG), and MCP
 (server URL plus optional bearer). Memory is a USER.md editor plus a searchable
 MEMORY list. Compaction is strategy, target percent, and keep-recent. A flag
 that is off does not appear in the sidebar at all — the section list is assembled

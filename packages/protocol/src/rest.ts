@@ -75,6 +75,8 @@ export const SessionDetailSchema = z.object({
   transcript: z.array(TranscriptRowSchema).default([]),
   pending: PendingGatesSchema,
   provider: ProviderOverrideSchema.optional(),
+  /** Session pin of one agent. Unset means no agent. */
+  agentId: z.string().min(1).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -100,6 +102,15 @@ export const SetProviderRequestSchema = z.object({
   provider: ProviderOverrideSchema.nullable(),
 });
 export type SetProviderRequest = z.infer<typeof SetProviderRequestSchema>;
+
+/**
+ * Persist a session-level agent pin, or clear it with `null` so the turn uses
+ * no agent.
+ */
+export const SetAgentRequestSchema = z.object({
+  agentId: z.string().min(1).nullable(),
+});
+export type SetAgentRequest = z.infer<typeof SetAgentRequestSchema>;
 
 /**
  * `follow_up` means the user sent another message while a turn was live. The
@@ -196,6 +207,7 @@ export const ROUTES = {
   cancel: (id: string) => `/sessions/${id}/cancel`,
   setMode: (id: string) => `/sessions/${id}/set-mode`,
   setProvider: (id: string) => `/sessions/${id}/set-provider`,
+  setAgent: (id: string) => `/sessions/${id}/set-agent`,
   toolApproval: (id: string, approvalId: string) => `/sessions/${id}/tool-approvals/${approvalId}`,
   approvePlan: (id: string) => `/sessions/${id}/approve-plan`,
   discardPlan: (id: string) => `/sessions/${id}/discard-plan`,

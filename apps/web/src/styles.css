@@ -764,12 +764,14 @@ pre {
  * The provider readout doubles as the picker trigger, so it has to look pressable
  * without turning the status bar into a toolbar: no fill, no border until hover.
  */
-[data-harness="status-provider-picker"] {
+[data-harness="status-provider-picker"],
+[data-harness="status-agent-picker"] {
   position: relative;
   display: inline-flex;
 }
 
-[data-harness="status-provider-trigger"] {
+[data-harness="status-provider-trigger"],
+[data-harness="status-agent-trigger"] {
   display: inline-flex;
   align-items: baseline;
   gap: var(--space-2);
@@ -779,7 +781,8 @@ pre {
   border-color: transparent;
 }
 
-[data-harness="status-provider-trigger"][data-overridden="true"] {
+[data-harness="status-provider-trigger"][data-overridden="true"],
+[data-harness="status-agent-trigger"][data-overridden="true"] {
   color: var(--accent);
 }
 
@@ -788,7 +791,8 @@ pre {
   font-size: 0.8em;
 }
 
-[data-harness="status-provider-popover"] {
+[data-harness="status-provider-popover"],
+[data-harness="status-agent-popover"] {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
@@ -1324,6 +1328,50 @@ pre {
   color: var(--muted);
   font-size: 0.8em;
   white-space: nowrap;
+}
+
+[data-harness="status-agent-option"] {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  padding: 6px var(--space-2);
+  border-color: transparent;
+}
+
+[data-harness="status-agent-option"][data-selected="true"] {
+  color: var(--accent);
+}
+
+[data-harness="toggle"] {
+  position: relative;
+  width: 36px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+[data-harness="toggle"][data-checked="true"] {
+  background: var(--accent);
+}
+
+[data-harness="toggle"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--panel);
+  transition: transform 120ms ease;
+}
+
+[data-harness="toggle"][data-checked="true"]::after {
+  transform: translateX(14px);
 }
 
 [data-harness="provider-active-badge"] {

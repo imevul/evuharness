@@ -251,6 +251,15 @@ export function App() {
           onProviderChange={(next) => {
             void session.setSessionProvider(next);
           }}
+          agents={status?.features?.agents === true ? (settings?.agents ?? []) : []}
+          agentId={session.session?.agentId ?? null}
+          {...(status?.features?.agents === true
+            ? {
+                onAgentChange: (agentId: string | null) => {
+                  void session.setSessionAgent(agentId);
+                },
+              }
+            : {})}
           onListModels={async (providerId) => (await client.listModels({ providerId })).models}
           usage={
             session.session?.usage ?? {

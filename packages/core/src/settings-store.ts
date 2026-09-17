@@ -34,6 +34,7 @@ export interface ProviderProfileInput {
   timeoutMs?: number;
   modelContextWindows?: Record<string, number>;
   modelContextWindowOverrides?: Record<string, number>;
+  active?: boolean;
 }
 
 /**
@@ -54,6 +55,7 @@ export interface StoredProviderProfile {
   timeoutMs: number;
   modelContextWindows: Record<string, number>;
   modelContextWindowOverrides: Record<string, number>;
+  active: boolean;
 }
 
 export interface StoredSearchProvider {
@@ -80,7 +82,6 @@ export interface StoredSettings {
   prompts: PromptSettings;
   policies: PolicySettings;
   agents: AgentProfile[];
-  activeAgentId: string | null;
   searchProviders: StoredSearchProvider[];
   activeSearchProviderId: string | null;
   mcpServers: StoredMcpServer[];
@@ -105,7 +106,6 @@ export function emptyStoredSettings(): StoredSettings {
     prompts: { global: '', perMode: {} },
     policies: { toolApprovals: {}, askUserEnabled: true, maxToolRounds: 12 },
     agents: [],
-    activeAgentId: null,
     searchProviders: [],
     activeSearchProviderId: null,
     mcpServers: [],
@@ -121,8 +121,11 @@ export function normalizeStoredSettings(raw: StoredSettings): StoredSettings {
     ...raw,
     prompts: { ...empty.prompts, ...raw.prompts },
     policies: { ...empty.policies, ...raw.policies },
-    agents: raw.agents ?? [],
-    activeAgentId: raw.activeAgentId ?? null,
+    providers: (raw.providers ?? []).map((profile) => ({
+      ...profile,
+      active: profile.active ?? true,
+    })),
+    agents: migrateAgents(raw),
     searchProviders: raw.searchProviders ?? [],
     activeSearchProviderId: raw.activeSearchProviderId ?? null,
     mcpServers: raw.mcpServers ?? [],
@@ -147,7 +150,6 @@ export function isPristineStoredSettings(settings: StoredSettings): boolean {
     (settings.policies.askUserEnabled ?? true) === true &&
     (settings.policies.maxToolRounds ?? 12) === 12 &&
     (settings.agents ?? []).length === 0 &&
-    (settings.activeAgentId ?? null) === null &&
     (settings.searchProviders ?? []).length === 0 &&
     (settings.mcpServers ?? []).length === 0
   );
@@ -166,6 +168,7 @@ export function storedFromInput(input: ProviderProfileInput): StoredProviderProf
     timeoutMs: input.timeoutMs ?? 120_000,
     modelContextWindows: input.modelContextWindows ?? {},
     modelContextWindowOverrides: input.modelContextWindowOverrides ?? {},
+    active: input.active ?? true,
   };
 }
 
@@ -187,6 +190,7 @@ export function toPublicProvider(stored: StoredProviderProfile): ProviderProfile
     timeoutMs: stored.timeoutMs,
     modelContextWindows: stored.modelContextWindows ?? {},
     modelContextWindowOverrides: stored.modelContextWindowOverrides ?? {},
+    active: stored.active,
   });
 }
 
@@ -207,7 +211,6 @@ export function toPublicSettings(
     },
     modes: extras.modes,
     agents: stored.agents ?? [],
-    activeAgentId: stored.activeAgentId ?? null,
     searchProviders: (stored.searchProviders ?? []).map(toPublicSearchProvider),
     activeSearchProviderId: stored.activeSearchProviderId ?? null,
     mcpServers: (stored.mcpServers ?? []).map(toPublicMcpServer),
@@ -281,6 +284,7 @@ function upsertProvider(
     timeoutMs: 120_000,
     modelContextWindows: {},
     modelContextWindowOverrides: {},
+    active: true,
   };
   const base: StoredProviderProfile = {
     ...(current ?? created),
@@ -302,6 +306,7 @@ function upsertProvider(
       write.modelContextWindowOverrides === undefined
         ? base.modelContextWindowOverrides
         : compactOverrideMap(write.modelContextWindowOverrides),
+    active: write.active ?? base.active,
   };
 
   if (write.apiKey === undefined) {
@@ -334,7 +339,7 @@ export function applySettingsUpdate(
     byId.set(write.id, upsertProvider(byId.get(write.id), write));
   }
 
-  const providers = [...byId.values()];
+  let providers = [...byId.values()];
   const providerIds = new Set(providers.map((provider) => provider.id));
 
   let activeProviderId = current.activeProviderId;
@@ -343,15 +348,28 @@ export function applySettingsUpdate(
     if (activeProviderId !== null && !providerIds.has(activeProviderId)) {
       throw new Error(`Unknown activeProviderId: ${activeProviderId}`);
     }
+    if (activeProviderId !== null) {
+      // Default implies available in the picker.
+      providers = providers.map((profile) =>
+        profile.id === activeProviderId ? { ...profile, active: true } : profile,
+      );
+    }
   } else if (activeProviderId !== null && !providerIds.has(activeProviderId)) {
-    // The active profile was removed in this update. Repoint rather than
+    // The default profile was removed in this update. Repoint rather than
     // rejecting — a delete that names only the id must not require the client
-    // to also send a new active id.
-    activeProviderId = providers[0]?.id ?? null;
+    // to also send a new default id.
+    activeProviderId = firstActiveProviderId(providers);
   } else if (activeProviderId === null && providers.length > 0) {
-    // First upsert that forgot to set active: default to the first remaining id
+    // First upsert that forgot to set default: pick the first active (or first)
     // so a UI that adds one profile does not leave the harness with nowhere to send.
-    activeProviderId = providers[0]?.id ?? null;
+    activeProviderId = firstActiveProviderId(providers) ?? providers[0]?.id ?? null;
+  }
+
+  if (
+    activeProviderId !== null &&
+    providers.find((profile) => profile.id === activeProviderId)?.active === false
+  ) {
+    activeProviderId = firstActiveProviderId(providers);
   }
 
   const agents = upsertNamed(
@@ -359,11 +377,6 @@ export function applySettingsUpdate(
     update.agents,
     update.removeAgentIds,
     upsertAgent,
-  );
-  const activeAgentId = nextActiveId(
-    current.activeAgentId ?? null,
-    update.activeAgentId,
-    agents.map((agent) => agent.id),
   );
 
   const searchProviders = upsertNamed(
@@ -403,7 +416,6 @@ export function applySettingsUpdate(
       maxToolRounds: update.policies?.maxToolRounds ?? current.policies.maxToolRounds ?? 12,
     },
     agents,
-    activeAgentId,
     searchProviders,
     activeSearchProviderId,
     mcpServers,
@@ -455,11 +467,24 @@ function upsertNamed<TStored extends { id: string }, TWrite extends { id: string
   return [...byId.values()];
 }
 
-function upsertAgent(_current: AgentProfile | undefined, write: AgentProfileWrite): AgentProfile {
+function firstActiveProviderId(providers: readonly StoredProviderProfile[]): string | null {
+  return providers.find((profile) => profile.active)?.id ?? null;
+}
+
+function migrateAgents(raw: StoredSettings & { activeAgentId?: string | null }): AgentProfile[] {
+  const previous = raw.activeAgentId ?? null;
+  return (raw.agents ?? []).map((agent) => ({
+    ...agent,
+    active: agent.active ?? (previous !== null && previous === agent.id),
+  }));
+}
+
+function upsertAgent(current: AgentProfile | undefined, write: AgentProfileWrite): AgentProfile {
   return {
     id: write.id,
     ...(write.label === undefined ? {} : { label: write.label }),
     soul: write.soul,
+    active: write.active ?? current?.active ?? true,
   };
 }
 

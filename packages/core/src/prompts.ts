@@ -36,8 +36,8 @@ export interface ComposePromptInput {
   scope?: Scope;
   sessionId?: string | undefined;
   skills?: readonly SkillSummary[];
-  /** Selected agent soul. Omitted or empty drops the section. */
-  soul?: string | undefined;
+  /** Active agent souls, in composition order. Empty entries are dropped. */
+  souls?: readonly { id: string; label: string; text: string }[] | undefined;
   /** Capped USER.md. Omitted or empty drops the section. */
   userProfile?: string | undefined;
   /** Compact MCP server snapshot (names only). */
@@ -91,9 +91,17 @@ export async function composePrompt(input: ComposePromptInput): Promise<PromptPr
     });
   }
 
-  const soul = input.soul?.trim() ?? '';
-  if (soul !== '') {
-    sections.push({ id: 'soul', label: 'Agent', text: soul, dynamic: false });
+  for (const soul of input.souls ?? []) {
+    const text = soul.text.trim();
+    if (text === '') {
+      continue;
+    }
+    sections.push({
+      id: `soul:${soul.id}`,
+      label: soul.label === '' ? 'Agent' : `Agent: ${soul.label}`,
+      text,
+      dynamic: false,
+    });
   }
 
   const userProfile = input.userProfile?.trim() ?? '';

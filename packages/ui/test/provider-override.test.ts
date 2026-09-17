@@ -15,6 +15,7 @@ describe('resolveActiveProviderSnapshot', () => {
       timeoutMs: 120_000,
       modelContextWindows: { 'local-m': 8_192 },
       modelContextWindowOverrides: {},
+      active: true,
     },
     {
       id: 'cloud',
@@ -28,6 +29,7 @@ describe('resolveActiveProviderSnapshot', () => {
       timeoutMs: 120_000,
       modelContextWindows: { 'cloud-m': 128_000, bigger: 200_000 },
       modelContextWindowOverrides: {},
+      active: true,
     },
   ];
 

@@ -53,6 +53,7 @@ export const ROUTE_CAPABILITIES = {
   'DELETE /sessions/:id': CAPABILITIES.chat,
   'POST /sessions/:id/set-mode': CAPABILITIES.chat,
   'POST /sessions/:id/set-provider': CAPABILITIES.chat,
+  'POST /sessions/:id/set-agent': CAPABILITIES.chat,
   'POST /chat': CAPABILITIES.chat,
   'POST /sessions/:id/cancel': CAPABILITIES.chat,
   'POST /sessions/:id/tool-approvals/:approvalId': CAPABILITIES.decide,

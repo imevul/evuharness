@@ -228,7 +228,7 @@ In addition to the parts-mode column:
 | Piece | Role |
 | --- | --- |
 | `SessionSidebar` | Session list, create, delete. The host owns the session array. |
-| `StatusBar` | Active provider, usage, optional `ProviderMenu` for session overrides. |
+| `StatusBar` | Default/active provider, usage, optional `ProviderMenu` (active profiles only) and agent picker. |
 | `ProviderSettings` | Named profiles, connection test, model browse. |
 | `PromptSettings` | Global and per-mode text, assembled preview. |
 | `ToolCatalogView` | Per-mode availability and approval policy. |
@@ -244,8 +244,13 @@ The demo swaps the whole window to settings and keeps `useHarnessSession`
 mounted so a turn keeps streaming.
 
 `StatusBar` becomes a control only when you pass `providers`, `override`, and
-`onProviderChange`. Without those it is display-only. Picking a provider there
-sets a session override; it never creates or edits a named profile.
+`onProviderChange`. Without those it is display-only. Only `active` provider
+profiles appear in that picker. Picking a provider there sets a session
+override; it never creates or edits a named profile.
+
+The agent dropdown appears when `onAgentChange` is passed and at least one
+settings-active soul exists. None uses no agent; a pick pins one agent on the
+session.
 
 Enable flags on `createHarness` to match the panels you mount. The demo turns
 on attachments, agents, memory, web search, HTTP, compaction, and MCP. A host

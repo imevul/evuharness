@@ -60,7 +60,8 @@ export {
 } from './components/ProviderSettings.js';
 export { SearchSettings, type SearchSettingsProps } from './components/SearchSettings.js';
 export { SessionSidebar, type SessionSidebarProps } from './components/SessionSidebar.js';
-export { StatusBar, type StatusBarProps } from './components/StatusBar.js';
+export { agentReadout, StatusBar, type StatusBarProps } from './components/StatusBar.js';
+export { Toggle, type ToggleProps } from './components/Toggle.js';
 export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCatalogView.js';
 export {
   formatWorkedDuration,

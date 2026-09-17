@@ -234,6 +234,36 @@ describe('set-provider', () => {
   });
 });
 
+describe('set-agent', () => {
+  it('persists and clears a session agent pin', async () => {
+    app = createHarnessRouter({
+      harness: build({ features: { agents: true } }),
+    });
+    await harness.updateSettings({
+      agents: [{ id: 'guide', label: 'Guide', soul: 'Be brief.', active: true }],
+    });
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+
+    const pinned = await post(`/sessions/${created.id}/set-agent`, { agentId: 'guide' });
+    expect(pinned.status).toBe(200);
+    expect(await pinned.json()).toMatchObject({ agentId: 'guide' });
+
+    const cleared = await post(`/sessions/${created.id}/set-agent`, { agentId: null });
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()) as { agentId?: unknown }).not.toHaveProperty('agentId');
+  });
+
+  it('rejects an unknown agent id', async () => {
+    app = createHarnessRouter({
+      harness: build({ features: { agents: true } }),
+    });
+    const created = (await (await post('/sessions', { mode: 'ask' })).json()) as { id: string };
+    expect((await post(`/sessions/${created.id}/set-agent`, { agentId: 'missing' })).status).toBe(
+      400,
+    );
+  });
+});
+
 describe('chat', () => {
   it('validates the request before refusing', async () => {
     // A missing mode is a client error; it must not be reported as unimplemented.

@@ -13,6 +13,7 @@ const PROFILE: StoredProviderProfile = {
   timeoutMs: 5_000,
   modelContextWindows: {},
   modelContextWindowOverrides: {},
+  active: true,
 };
 
 function jsonResponse(status: number, body: unknown): Response {

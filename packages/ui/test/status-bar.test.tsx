@@ -18,8 +18,11 @@ const profiles: ProviderProfile[] = [
     models: [],
     hasApiKey: false,
     supportsEffort: false,
+    supportsReasoning: false,
+    timeoutMs: 120_000,
     modelContextWindows: {},
     modelContextWindowOverrides: {},
+    active: true,
   },
 ];
 
@@ -196,5 +199,89 @@ describe('StatusBar provider picker', () => {
     expect(
       (screen.getByRole('button', { name: /No provider/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it('hides inactive providers from the picker', async () => {
+    render(
+      <StatusBar
+        provider={{ id: 'local', label: 'Local', model: 'qwen3-30b' }}
+        usage={usage}
+        providers={[
+          ...profiles,
+          {
+            ...profiles[0]!,
+            id: 'asleep',
+            label: 'Asleep',
+            active: false,
+          },
+        ]}
+        onProviderChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Local/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Provider/ }));
+    expect(optionLabels()).toContain('Local');
+    expect(optionLabels()).not.toContain('Asleep');
+  });
+});
+
+describe('StatusBar agent picker', () => {
+  it('pins one agent and can return to Default', () => {
+    const onAgentChange = vi.fn();
+    render(
+      <StatusBar
+        provider={{ id: 'local', model: 'm' }}
+        usage={usage}
+        agents={[
+          { id: 'guide', label: 'Guide', soul: 'a', active: true },
+          { id: 'poet', label: 'Poet', soul: 'b', active: true },
+        ]}
+        agentId={null}
+        onAgentChange={onAgentChange}
+      />,
+    );
+
+    expect(screen.getByText('None')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /None/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'Poet' }));
+    expect(onAgentChange).toHaveBeenCalledWith('poet');
+  });
+
+  it('clears the session pin from None', () => {
+    const onAgentChange = vi.fn();
+    render(
+      <StatusBar
+        provider={{ id: 'local', model: 'm' }}
+        usage={usage}
+        agents={[{ id: 'guide', label: 'Guide', soul: 'a', active: true }]}
+        agentId="guide"
+        onAgentChange={onAgentChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Guide/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'None' }));
+    expect(onAgentChange).toHaveBeenCalledWith(null);
+  });
+
+  it('omits inactive agents unless they are the session pin', () => {
+    const onAgentChange = vi.fn();
+    render(
+      <StatusBar
+        provider={{ id: 'local', model: 'm' }}
+        usage={usage}
+        agents={[
+          { id: 'guide', label: 'Guide', soul: 'a', active: true },
+          { id: 'quiet', label: 'Quiet', soul: 'b', active: false },
+        ]}
+        agentId={null}
+        onAgentChange={onAgentChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /None/ }));
+    expect(screen.getByRole('option', { name: 'Guide' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: 'Quiet' })).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import { formatContextWindow } from '../k-notation.js';
 import { resolveModelContextWindow } from '../provider-override.js';
 import { Modal } from './Modal.js';
 import { ProviderFormModal } from './ProviderFormModal.js';
+import { Toggle } from './Toggle.js';
 
 export interface ProviderSettingsProps {
   settings: HarnessSettings;
@@ -27,11 +28,11 @@ function displayName(profile: ProviderProfile): string {
 }
 
 /**
- * Named provider profiles: a list of what exists, with create, edit, delete, and
- * which one is active.
+ * Named provider profiles: a list of what exists, with create, edit, delete,
+ * which ones are offered in the picker, and which one is the default.
  *
  * The list is the screen; editing happens in a dialog. One always-open form cannot
- * say which profile is active without competing with the form's own idea of
+ * say which profile is the default without competing with the form's own idea of
  * "selected", and the distinction between "the row I am looking at" and "the
  * profile every new turn will use" is the one thing this screen has to get right.
  */
@@ -89,7 +90,8 @@ export function ProviderSettings(props: ProviderSettingsProps) {
         <div>
           <h2>Providers</h2>
           <p data-harness="provider-settings-hint">
-            The active profile is what a new turn uses unless a session or send overrides it.
+            Active profiles appear in the status-bar picker. The default is what a new turn uses
+            unless a session or send overrides it.
           </p>
         </div>
         <button
@@ -109,11 +111,11 @@ export function ProviderSettings(props: ProviderSettingsProps) {
       ) : (
         <ul data-harness="provider-list">
           {settings.providers.map((profile) => {
-            const active = profile.id === settings.activeProviderId;
+            const isDefault = profile.id === settings.activeProviderId;
             const window = resolveModelContextWindow(profile, profile.model);
 
             return (
-              <li key={profile.id} data-harness="provider-row" data-active={active}>
+              <li key={profile.id} data-harness="provider-row" data-active={isDefault}>
                 <div data-harness="provider-row-main">
                   <span data-harness="provider-label">{displayName(profile)}</span>
                   <span data-harness="provider-model">{profile.model}</span>
@@ -125,8 +127,25 @@ export function ProviderSettings(props: ProviderSettingsProps) {
                     <span data-harness="provider-window">{formatContextWindow(window)} ctx</span>
                   )}
                   {profile.hasApiKey && <span data-harness="provider-key">key set</span>}
-                  {active ? (
-                    <span data-harness="provider-active-badge">Active</span>
+                  <Toggle
+                    checked={profile.active}
+                    disabled={busy}
+                    label={`${profile.active ? 'Disable' : 'Enable'} ${displayName(profile)}`}
+                    onChange={(active) => {
+                      void run({
+                        providers: [
+                          {
+                            id: profile.id,
+                            baseUrl: profile.baseUrl,
+                            model: profile.model,
+                            active,
+                          },
+                        ],
+                      });
+                    }}
+                  />
+                  {isDefault ? (
+                    <span data-harness="provider-active-badge">Default</span>
                   ) : (
                     <button
                       type="button"
@@ -134,7 +153,7 @@ export function ProviderSettings(props: ProviderSettingsProps) {
                       disabled={busy}
                       onClick={() => void run({ activeProviderId: profile.id })}
                     >
-                      Use
+                      Set as default
                     </button>
                   )}
                 </div>
@@ -218,7 +237,7 @@ export function ProviderSettings(props: ProviderSettingsProps) {
         >
           <p>
             The profile and its stored key are removed. Sessions pinned to it fall back to the
-            active provider.
+            default provider.
           </p>
         </Modal>
       )}

@@ -39,6 +39,8 @@ export interface SessionRecord {
   pending: PendingGates;
   /** Session-level provider preference, distinct from a per-turn override. */
   provider?: ProviderOverride | undefined;
+  /** Session pin of one agent. Unset means no agent. */
+  agentId?: string | undefined;
   /** Rolling compaction cursor. Stored messages stay verbatim. */
   compaction?: { summary: string; throughIndex: number; updatedAt: string } | undefined;
 }
@@ -122,5 +124,31 @@ export function toSessionDetail(record: SessionRecord, turnInProgress = false): 
     transcript: record.transcript,
     pending: record.pending,
     ...(record.provider === undefined ? {} : { provider: record.provider }),
+    ...(record.agentId === undefined ? {} : { agentId: record.agentId }),
+  };
+}
+
+/** Persist or clear the session-level agent pin. */
+export function setSessionAgent(
+  stored: SessionRecord,
+  agentId: string | null,
+  now?: string,
+): SessionRecord {
+  if (agentId === null || agentId === '') {
+    if (stored.agentId === undefined) {
+      return stored;
+    }
+    const { agentId: _removed, ...rest } = stored;
+    return { ...rest, updatedAt: now ?? new Date().toISOString() };
+  }
+
+  if (stored.agentId === agentId) {
+    return stored;
+  }
+
+  return {
+    ...stored,
+    agentId,
+    updatedAt: now ?? new Date().toISOString(),
   };
 }

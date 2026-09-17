@@ -2,6 +2,7 @@ import {
   applySettingsUpdate,
   createHarness,
   emptyStoredSettings,
+  normalizeStoredSettings,
   storedFromInput,
   toPublicProvider,
 } from '@evu/harness-core';
@@ -12,6 +13,22 @@ const LOCAL = storedFromInput({
   baseUrl: 'https://example.test/v1',
   model: 'm',
   apiKey: 'secret',
+});
+
+describe('normalizeStoredSettings', () => {
+  it('migrates a stored activeAgentId onto that agent', () => {
+    const next = normalizeStoredSettings({
+      ...emptyStoredSettings(),
+      agents: [{ id: 'guide', soul: 'a' } as never, { id: 'poet', soul: 'b' } as never],
+      // Old payload field.
+      ...({ activeAgentId: 'poet' } as object),
+    });
+
+    expect(next.agents).toEqual([
+      { id: 'guide', soul: 'a', active: false },
+      { id: 'poet', soul: 'b', active: true },
+    ]);
+  });
 });
 
 describe('toPublicProvider', () => {
@@ -93,6 +110,36 @@ describe('applySettingsUpdate', () => {
     expect(next.activeProviderId).toBe('other');
   });
 
+  it('repoints the default when that profile is deactivated', () => {
+    const current = emptyStoredSettings();
+    current.providers = [
+      LOCAL,
+      storedFromInput({ id: 'other', baseUrl: 'https://b.test/v1', model: 'n' }),
+    ];
+    current.activeProviderId = 'local';
+
+    const next = applySettingsUpdate(current, {
+      providers: [{ id: 'local', baseUrl: LOCAL.baseUrl, model: LOCAL.model, active: false }],
+    });
+
+    expect(next.providers[0]?.active).toBe(false);
+    expect(next.activeProviderId).toBe('other');
+  });
+
+  it('activates a profile when it is set as the default', () => {
+    const current = emptyStoredSettings();
+    current.providers = [
+      { ...LOCAL, active: false },
+      storedFromInput({ id: 'other', baseUrl: 'https://b.test/v1', model: 'n' }),
+    ];
+    current.activeProviderId = 'other';
+
+    const next = applySettingsUpdate(current, { activeProviderId: 'local' });
+
+    expect(next.activeProviderId).toBe('local');
+    expect(next.providers.find((profile) => profile.id === 'local')?.active).toBe(true);
+  });
+
   it('replaces per-model overrides when sent and leaves them when omitted', () => {
     const current = emptyStoredSettings();
     current.providers = [
@@ -126,7 +173,7 @@ describe('applySettingsUpdate', () => {
 
   it('upserts agents and search providers without replacing siblings', () => {
     const current = emptyStoredSettings();
-    current.agents = [{ id: 'guide', soul: 'old' }];
+    current.agents = [{ id: 'guide', soul: 'old', active: true }];
 
     const next = applySettingsUpdate(current, {
       agents: [{ id: 'poet', label: 'Poet', soul: 'verse' }],
@@ -134,6 +181,7 @@ describe('applySettingsUpdate', () => {
     });
 
     expect(next.agents.map((agent) => agent.id)).toEqual(['guide', 'poet']);
+    expect(next.agents.find((agent) => agent.id === 'poet')?.active).toBe(true);
     expect(next.searchProviders.map((provider) => provider.id)).toEqual(['ddg']);
     expect(next.activeSearchProviderId).toBe('ddg');
   });

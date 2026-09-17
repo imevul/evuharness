@@ -241,6 +241,7 @@ describe('provider write shape', () => {
       modelContextWindowOverrides: { big: 16_384 },
     });
 
+    expect(profile.active).toBe(true);
     expect(profile.modelContextWindows.big).toBe(32_768);
     expect(
       ProviderProfileWriteSchema.parse({
