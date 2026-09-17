@@ -140,7 +140,7 @@ const session = useHarnessSession({ client, sessionId, initialMode });
       void client.decideModeSwitch(sessionId, { approve });
     }}
     onAskUserAnswer={(askId, answers) => {
-      void client.answerAskUser(sessionId, askId, { answers });
+      void session.answerAskUser(askId, answers);
     }}
   />
 )}
@@ -160,6 +160,11 @@ const session = useHarnessSession({ client, sessionId, initialMode });
       attachments: value.attachments,
     })
   }
+  onAction={(action) => {
+    if (action === COMPOSER_ACTIONS.openModelPicker) {
+      setPickerRequest({ nonce: Date.now(), row: 'model' });
+    }
+  }}
   onCancel={() => void session.cancel()}
 />
 ```
@@ -170,8 +175,25 @@ array; dropping it leaves chips that never reach the turn.
 Draft mode is local. `onModeChange` must not persist a session default mid-turn.
 Send pins the mode; `useHarnessSession` does that from `draftMode`.
 
+`Composer` defaults to `chrome="inlaid"`: `+` opens a searchable add menu
+(modes, attach, catalog triggers, and live catalog hits), the mode chip hides
+on `unmarkedMode` (`agent` by default), and send/stop are icon buttons. A
+single-line draft sits between `+` and send; wrapping stacks the field above
+the controls and caps its height. Pass `chrome="bar"` to keep the original
+mode / attach / Send row. `trailingActions` is reserved for a later inlaid
+voice control.
+
 Load `menus` and `modes` from `client.contextMenus()` and `client.status()`.
 Do not hardcode triggers: the catalog is the source of truth.
+
+`/model` and `/plan` are opt-in. Add `modelCommandItem()` / `planCommandItem()`
+to a `commandsMenu` or `skillsMenu` source if the host wants the rows; omit
+them otherwise. They declare `action: open-model-picker` and
+`action: switch-to-plan-mode` (`COMPOSER_ACTIONS` from
+`@evu/harness-protocol`). The composer fires `onAction` and does not send.
+Pass `open-model-picker` through to `StatusBar` as `pickerRequest`. Pass
+`switch-to-plan-mode` to `setDraftMode('plan')`. Without those handlers the
+trigger is still removed and nothing else happens.
 
 ### Tools
 
@@ -246,7 +268,9 @@ mounted so a turn keeps streaming.
 `StatusBar` becomes a control only when you pass `providers`, `override`, and
 `onProviderChange`. Without those it is display-only. Only `active` provider
 profiles appear in that picker. Picking a provider there sets a session
-override; it never creates or edits a named profile.
+override; it never creates or edits a named profile. `pickerRequest` opens the
+popover (and a flyout when `row` is set) so `/model` can land on the model
+list.
 
 The agent dropdown appears when `onAgentChange` is passed and at least one
 settings-active soul exists. None uses no agent; a pick pins one agent on the

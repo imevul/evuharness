@@ -117,12 +117,9 @@ export function createAttachmentChipElement(
   if (attachment.size !== undefined) {
     chip.dataset.size = String(attachment.size);
   }
-  if (attachment.url !== undefined) {
-    chip.dataset.url = attachment.url;
-  }
-  if (attachment.text !== undefined) {
-    chip.dataset.text = attachment.text;
-  }
+  // Never write `url` / `text` onto the chip. A data URL or a real file body
+  // in a data-* attribute can throw or silently fail paint, which is what made
+  // attach look like a no-op. Payloads stay on `ComposerValue.attachments`.
   if (attachment.icon !== undefined && attachment.icon !== '') {
     chip.dataset.icon = attachment.icon;
   }
@@ -146,6 +143,71 @@ function appendChipVisuals(chip: HTMLElement, icon: string | undefined, label: s
   labelEl.dataset.harness = 'chip-label';
   labelEl.textContent = label;
   chip.appendChild(labelEl);
+
+  const remove = chip.ownerDocument.createElement('button');
+  remove.type = 'button';
+  remove.dataset.harness = 'chip-remove';
+  remove.setAttribute('aria-label', `Remove ${label}`);
+  // Stay out of the tab order: the composer is one textbox; Backspace still
+  // deletes a chip. Pointer and the accessible name cover the control.
+  remove.tabIndex = -1;
+  remove.textContent = '×';
+  chip.appendChild(remove);
+}
+
+export function isChipRemoveElement(node: Node): node is HTMLElement {
+  return (
+    node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.harness === 'chip-remove'
+  );
+}
+
+/** Remove a painted chip and leave the caret where it sat. */
+export function removeChipElement(chip: HTMLElement): void {
+  const doc = chip.ownerDocument;
+  const selection = doc.getSelection();
+  const parent = chip.parentNode;
+  const previous = chip.previousSibling;
+  const next = chip.nextSibling;
+  const index = parent === null ? -1 : Array.from(parent.childNodes).indexOf(chip);
+  chip.remove();
+
+  // applyPickToText / insertCatalogItemAtCaret pad the chip with a space
+  // (and contenteditable may leave a filler <br>). Eat that padding so a
+  // deleted chip does not leave an undeletable blank.
+  eatPaddingAfterChip(next);
+  if (previous !== null && previous.parentNode !== null && isWhitespaceOnly(previous)) {
+    previous.parentNode.removeChild(previous);
+  }
+
+  if (parent === null || index < 0 || selection === null) {
+    return;
+  }
+
+  const nextRange = doc.createRange();
+  nextRange.setStart(parent, Math.min(index, parent.childNodes.length));
+  nextRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(nextRange);
+}
+
+function isWhitespaceOnly(node: Node): boolean {
+  if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === 'BR') {
+    return true;
+  }
+  return node.nodeType === Node.TEXT_NODE && /^[ \u00a0\n\r]*$/.test(node.textContent ?? '');
+}
+
+function eatPaddingAfterChip(node: Node | null): void {
+  let cursor = node;
+  while (cursor !== null && isWhitespaceOnly(cursor)) {
+    const following = cursor.nextSibling;
+    cursor.parentNode?.removeChild(cursor);
+    cursor = following;
+  }
+  if (cursor === null || cursor.nodeType !== Node.TEXT_NODE) return;
+  const text = cursor.textContent ?? '';
+  if (!/^[ \u00a0\n\r]/.test(text)) return;
+  cursor.textContent = text.slice(1);
 }
 
 function readChipRef(el: HTMLElement): ComposerChipRef {
@@ -207,8 +269,6 @@ function readAttachmentChip(el: HTMLElement): ComposerAttachment {
     token: el.dataset.token ?? attachmentToken(kind, name),
   };
   if (size !== undefined) attachment.size = size;
-  if (el.dataset.url !== undefined && el.dataset.url !== '') attachment.url = el.dataset.url;
-  if (el.dataset.text !== undefined) attachment.text = el.dataset.text;
   if (el.dataset.icon !== undefined) attachment.icon = el.dataset.icon;
   if (tone === 'neutral' || tone === 'accent' || tone === 'warn') attachment.tone = tone;
   return attachment;
@@ -296,6 +356,36 @@ export function serializeComposer(root: HTMLElement, caret?: WalkCaret | null): 
  * Keep plain-text picks from the previous draft when their inserted text is still
  * present. Chip refs always come from the live DOM so backspace stays honest.
  */
+/**
+ * Restore image/file payloads after a DOM walk.
+ *
+ * Chips only store identity (id, token, name). `url` and `text` live on the
+ * composer value so paint cannot choke on a data URL or a file body.
+ */
+export function mergeComposerAttachments(
+  serialized: ComposerValue,
+  previous: readonly ComposerAttachment[],
+): ComposerAttachment[] {
+  if (previous.length === 0) {
+    return serialized.attachments;
+  }
+
+  const byId = new Map(previous.map((attachment) => [attachment.id, attachment]));
+  const byToken = new Map(previous.map((attachment) => [attachment.token, attachment]));
+
+  return serialized.attachments.map((fromDom) => {
+    const prev = byId.get(fromDom.id) ?? byToken.get(fromDom.token);
+    if (prev === undefined) {
+      return fromDom;
+    }
+    return {
+      ...fromDom,
+      ...(prev.url === undefined ? {} : { url: prev.url }),
+      ...(prev.text === undefined ? {} : { text: prev.text }),
+    };
+  });
+}
+
 export function mergeComposerRefs(
   serialized: ComposerValue,
   previous: readonly ComposerChipRef[],
@@ -500,18 +590,7 @@ export function deleteChipBeforeCaret(root: HTMLElement): boolean {
     return false;
   }
 
-  const parent = chip.parentNode;
-  const index = parent === null ? -1 : Array.from(parent.childNodes).indexOf(chip);
-  chip.remove();
-
-  if (parent !== null && index >= 0) {
-    const nextRange = root.ownerDocument.createRange();
-    nextRange.setStart(parent, Math.min(index, parent.childNodes.length));
-    nextRange.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(nextRange);
-  }
-
+  removeChipElement(chip);
   return true;
 }
 
@@ -549,41 +628,39 @@ export function deleteChipAfterCaret(root: HTMLElement): boolean {
     return false;
   }
 
-  const parent = chip.parentNode;
-  const index = parent === null ? -1 : Array.from(parent.childNodes).indexOf(chip);
-  chip.remove();
-
-  if (parent !== null && index >= 0) {
-    const nextRange = root.ownerDocument.createRange();
-    nextRange.setStart(parent, Math.min(index, parent.childNodes.length));
-    nextRange.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(nextRange);
-  }
-
+  removeChipElement(chip);
   return true;
 }
 
 /** Build a composer attachment from a browser File (images as data URLs, text inlined). */
+function newAttachmentId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
 export async function attachmentFromFile(
   file: File,
-  idFactory: () => string = () => crypto.randomUUID(),
+  idFactory: () => string = newAttachmentId,
 ): Promise<ComposerAttachment> {
   const id = idFactory();
   const mimeType = file.type || 'application/octet-stream';
   const isImage = mimeType.startsWith('image/');
+  const name = file.name.trim() === '' ? (isImage ? 'image' : 'file') : file.name;
 
   if (isImage) {
     const url = await readFileAsDataUrl(file);
-    const token = attachmentToken('image', file.name);
+    const token = attachmentToken('image', name);
     return {
       id,
       kind: 'image',
-      name: file.name,
+      name,
       mimeType,
       size: file.size,
       url,
-      label: file.name,
+      label: name,
       icon: 'image',
       tone: 'accent',
       asChip: true,
@@ -592,15 +669,15 @@ export async function attachmentFromFile(
   }
 
   const text = await readFileAsText(file);
-  const token = attachmentToken('file', file.name);
+  const token = attachmentToken('file', name);
   return {
     id,
     kind: 'file',
-    name: file.name,
+    name,
     mimeType,
     size: file.size,
     ...(text === undefined ? {} : { text }),
-    label: file.name,
+    label: name,
     icon: 'file',
     tone: 'neutral',
     asChip: true,
@@ -621,7 +698,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function readFileAsText(file: File): Promise<string | undefined> {
   // Skip obviously binary types; the model gets a name-only stub instead.
-  if (mimeLooksBinary(file.type) || file.size > 256 * 1024) {
+  if (mimeLooksBinary(file.type, file.name) || file.size > 256 * 1024) {
     return Promise.resolve(undefined);
   }
   return new Promise((resolve, reject) => {
@@ -640,7 +717,10 @@ function readFileAsText(file: File): Promise<string | undefined> {
   });
 }
 
-function mimeLooksBinary(mime: string): boolean {
+function mimeLooksBinary(mime: string, name = ''): boolean {
+  if (TEXT_FILE_NAME.test(name)) {
+    return false;
+  }
   if (mime === '' || mime.startsWith('text/') || mime === 'application/json') {
     return false;
   }
@@ -654,6 +734,9 @@ function mimeLooksBinary(mime: string): boolean {
   }
   return true;
 }
+
+const TEXT_FILE_NAME =
+  /\.(md|txt|csv|json|ts|tsx|js|jsx|mjs|cjs|py|rs|go|toml|yml|yaml|xml|html|css|svg|sh|env|log)$/i;
 
 /** Insert an attachment chip at the caret into a composer value. */
 export function insertAttachmentAtCaret(

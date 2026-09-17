@@ -2,23 +2,21 @@ import {
   type ContextMenuDefinition,
   commandsMenu,
   mentionsMenu,
+  modelCommandItem,
+  planCommandItem,
   type SkillCatalog,
   skillsMenu,
 } from '@evu/harness-core';
 import type { ContextMenuNode } from '@evu/harness-protocol';
 
 const COMMAND_NODES = [
+  modelCommandItem(),
+  planCommandItem(),
   {
     kind: 'item',
     id: 'explain',
     label: 'explain',
     hint: 'Explain what is going on',
-  },
-  {
-    kind: 'item',
-    id: 'plan',
-    label: 'plan',
-    hint: 'Switch to plan mode and propose a plan',
   },
 ] satisfies ContextMenuNode[];
 
@@ -127,12 +125,10 @@ async function resolveDemoCommand({
   ref: { id: string; token?: string | undefined };
   text: string;
 }) {
-  if (ref.id === 'plan') {
+  if (ref.id === 'model') {
     return {
       effect: 'command' as const,
-      mode: 'plan' as const,
       replaceText: ref.token === undefined ? text : text.replace(ref.token, '').trim(),
-      prompt: 'Propose a plan before making any changes.',
     };
   }
 

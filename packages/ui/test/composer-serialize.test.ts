@@ -4,8 +4,10 @@ import {
   type ComposerValue,
   createChipElement,
   deleteChipBeforeCaret,
+  mergeComposerAttachments,
   mergeComposerRefs,
   paintComposer,
+  removeChipElement,
   serializeComposer,
   toWireAttachments,
   toWireRefs,
@@ -35,8 +37,13 @@ describe('serializeComposer', () => {
     root.appendChild(chip);
     root.appendChild(document.createTextNode(' please'));
 
+    expect(chip.querySelector('[data-harness="chip-remove"]')?.getAttribute('aria-label')).toBe(
+      'Remove API Gateway',
+    );
+
     const value = serializeComposer(root);
     expect(value.text).toBe('see @service:api please');
+    expect(value.text).not.toContain('×');
     expect(value.refs).toEqual([
       expect.objectContaining({
         menu: 'mentions',
@@ -154,7 +161,7 @@ describe('deleteChipBeforeCaret', () => {
 
     expect(deleteChipBeforeCaret(root)).toBe(true);
     expect(root.querySelector('[data-harness="chip"]')).toBeNull();
-    expect(serializeComposer(root).text).toBe(' x');
+    expect(serializeComposer(root).text).toBe('x');
     root.remove();
   });
 });
@@ -189,16 +196,19 @@ describe('attachment chips', () => {
     const serialized = serializeComposer(root);
     expect(serialized.text).toBe('see [image:shot.png] please');
     expect(serialized.refs).toEqual([]);
+    expect(chip?.getAttribute('data-url')).toBeNull();
     expect(serialized.attachments).toEqual([
       expect.objectContaining({
         id: 'a1',
         kind: 'image',
         name: 'shot.png',
-        url: 'data:image/png;base64,abc',
         token: '[image:shot.png]',
       }),
     ]);
-    expect(toWireAttachments(serialized.attachments)).toEqual([
+    expect(serialized.attachments[0]).not.toHaveProperty('url');
+
+    const merged = mergeComposerAttachments(serialized, value.attachments);
+    expect(toWireAttachments(merged)).toEqual([
       {
         id: 'a1',
         kind: 'image',
@@ -208,5 +218,20 @@ describe('attachment chips', () => {
         url: 'data:image/png;base64,abc',
       },
     ]);
+  });
+});
+
+describe('removeChipElement', () => {
+  it('drops the padding space left after a chip', () => {
+    const root = document.createElement('div');
+    const chip = createChipElement(document, ref({ id: 'api', label: 'API Gateway' }));
+    root.appendChild(chip);
+    root.appendChild(document.createTextNode(' '));
+    root.appendChild(document.createElement('br'));
+
+    removeChipElement(chip);
+
+    expect(root.querySelector('[data-harness="chip"]')).toBeNull();
+    expect(serializeComposer(root).text).toBe('');
   });
 });

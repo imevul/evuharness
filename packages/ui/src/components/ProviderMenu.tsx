@@ -5,8 +5,15 @@ import type {
   ProviderProfile,
   ReasoningEffort,
 } from '@evu/harness-protocol';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { formatContextWindow } from '../k-notation.js';
+
+export type ProviderMenuRow = 'provider' | 'model' | 'effort';
+
+export interface ProviderMenuOpenRequest {
+  nonce: number;
+  row: ProviderMenuRow;
+}
 
 export interface ProviderMenuProps {
   providers: readonly ProviderProfile[];
@@ -22,10 +29,13 @@ export interface ProviderMenuProps {
    * back to the ids already stored on the profile.
    */
   onListModels?: (providerId: string) => Promise<readonly ModelCatalogEntry[]>;
+  /**
+   * Open a row when `nonce` changes. Used by `/model` and other host chrome
+   * that should land on a specific flyout without a click.
+   */
+  openRequest?: ProviderMenuOpenRequest;
   className?: string;
 }
-
-type Row = 'provider' | 'model' | 'effort';
 
 const EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
@@ -42,9 +52,9 @@ const EFFORTS: readonly ReasoningEffort[] = ['minimal', 'low', 'medium', 'high']
  * one.
  */
 export function ProviderMenu(props: ProviderMenuProps) {
-  const { providers, value, onChange, active, onListModels, className } = props;
+  const { providers, value, onChange, active, onListModels, openRequest, className } = props;
 
-  const [open, setOpen] = useState<Row | null>(null);
+  const [open, setOpen] = useState<ProviderMenuRow | null>(null);
   const [query, setQuery] = useState('');
   const [catalog, setCatalog] = useState<{
     providerId: string;
@@ -79,7 +89,7 @@ export function ProviderMenu(props: ProviderMenuProps) {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [open]);
 
-  const openModels = () => {
+  const openModels = useCallback(() => {
     setOpen('model');
     setQuery('');
 
@@ -94,7 +104,20 @@ export function ProviderMenu(props: ProviderMenuProps) {
         setError(cause instanceof Error ? cause.message : String(cause));
       })
       .finally(() => setLoading(false));
-  };
+  }, [catalog?.providerId, onListModels, providerId]);
+
+  const lastOpenNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (openRequest === undefined) return;
+    if (lastOpenNonce.current === openRequest.nonce) return;
+    lastOpenNonce.current = openRequest.nonce;
+    if (openRequest.row === 'model') {
+      openModels();
+      return;
+    }
+    setOpen(openRequest.row);
+    setQuery('');
+  }, [openRequest, openModels]);
 
   /**
    * Apply a patch, dropping keys set to undefined, and collapse an empty override

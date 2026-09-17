@@ -8,7 +8,12 @@ import type {
 } from '@evu/harness-protocol';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { focusableWithin } from '../focus-trap.js';
-import { ProviderMenu } from './ProviderMenu.js';
+import { ProviderMenu, type ProviderMenuRow } from './ProviderMenu.js';
+
+export interface StatusBarPickerRequest {
+  nonce: number;
+  row?: ProviderMenuRow;
+}
 
 export interface StatusBarProps {
   provider: ActiveProviderSnapshot | null;
@@ -25,6 +30,11 @@ export interface StatusBarProps {
   onProviderChange?: (next: ProviderOverride | null) => void;
   /** Passed through to the picker; called when its model row opens. */
   onListModels?: (providerId: string) => Promise<readonly ModelCatalogEntry[]>;
+  /**
+   * Open the provider popover (and optionally a flyout) when `nonce` changes.
+   * `/model` uses this so a pick can land on the model list without sending.
+   */
+  pickerRequest?: StatusBarPickerRequest;
   /** No session to pin an override to yet. */
   pickerDisabled?: boolean;
   /** Agents offered in the session picker. Inactive profiles are ignored. */
@@ -55,6 +65,7 @@ export function StatusBar(props: StatusBarProps) {
     override,
     onProviderChange,
     onListModels,
+    pickerRequest,
     pickerDisabled = false,
     agents = [],
     agentId = null,
@@ -94,6 +105,7 @@ export function StatusBar(props: StatusBarProps) {
           active={provider}
           disabled={pickerDisabled}
           {...(onListModels === undefined ? {} : { onListModels })}
+          {...(pickerRequest === undefined ? {} : { pickerRequest })}
         >
           {readout}
         </ProviderPicker>
@@ -213,9 +225,6 @@ function AgentPicker({
               {agent.label ?? agent.id}
             </button>
           ))}
-          <p data-harness="status-provider-hint">
-            None uses no agent. A pick applies to this chat only.
-          </p>
         </div>
       )}
     </span>
@@ -252,6 +261,7 @@ function ProviderPicker({
   onChange,
   active,
   onListModels,
+  pickerRequest,
   disabled,
   children,
 }: {
@@ -260,6 +270,7 @@ function ProviderPicker({
   onChange: (next: ProviderOverride | null) => void;
   active: ActiveProviderSnapshot | null;
   onListModels?: (providerId: string) => Promise<readonly ModelCatalogEntry[]>;
+  pickerRequest?: StatusBarPickerRequest;
   disabled: boolean;
   children: ReactNode;
 }) {
@@ -268,6 +279,14 @@ function ProviderPicker({
   const rootRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const lastPickerNonce = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (pickerRequest === undefined) return;
+    if (lastPickerNonce.current === pickerRequest.nonce) return;
+    lastPickerNonce.current = pickerRequest.nonce;
+    setOpen(true);
+  }, [pickerRequest]);
 
   useEffect(() => {
     if (!open) return;
@@ -335,11 +354,10 @@ function ProviderPicker({
             onChange={onChange}
             active={active}
             {...(onListModels === undefined ? {} : { onListModels })}
+            {...(pickerRequest?.row === undefined
+              ? {}
+              : { openRequest: { nonce: pickerRequest.nonce, row: pickerRequest.row } })}
           />
-          <p data-harness="status-provider-hint">
-            Applies to this chat and persists with it. Settings still decides the default for new
-            chats.
-          </p>
         </div>
       )}
     </span>

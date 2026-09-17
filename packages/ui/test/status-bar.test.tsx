@@ -185,6 +185,27 @@ describe('StatusBar provider picker', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('opens the model flyout when pickerRequest targets model', async () => {
+    const onListModels = vi.fn(async () => [
+      { id: 'qwen3-30b', contextWindow: 32_768 },
+      { id: 'gpt-oss-20b' },
+    ]);
+    render(
+      <StatusBar
+        provider={{ id: 'local', label: 'Local', model: 'qwen3-30b' }}
+        usage={usage}
+        providers={profiles}
+        onProviderChange={() => undefined}
+        onListModels={onListModels}
+        pickerRequest={{ nonce: 1, row: 'model' }}
+      />,
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Provider for this chat' })).toBeTruthy();
+    await waitFor(() => expect(onListModels).toHaveBeenCalledWith('local'));
+    await waitFor(() => expect(screen.getByLabelText('Search models')).toBeTruthy());
+  });
+
   it('disables the trigger when there is nothing to pin an override to', () => {
     render(
       <StatusBar

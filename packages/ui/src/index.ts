@@ -15,7 +15,7 @@ export {
   CompactionSettingsPanel,
   type CompactionSettingsProps,
 } from './components/CompactionSettings.js';
-export { Composer, type ComposerProps } from './components/Composer.js';
+export { Composer, type ComposerChrome, type ComposerProps } from './components/Composer.js';
 export {
   ContextMenuPopup,
   type ContextMenuPopupProps,
@@ -49,7 +49,12 @@ export {
   ProviderFormModal,
   type ProviderFormModalProps,
 } from './components/ProviderFormModal.js';
-export { ProviderMenu, type ProviderMenuProps } from './components/ProviderMenu.js';
+export {
+  ProviderMenu,
+  type ProviderMenuOpenRequest,
+  type ProviderMenuProps,
+  type ProviderMenuRow,
+} from './components/ProviderMenu.js';
 export {
   ProviderOverrideControls,
   type ProviderOverrideControlsProps,
@@ -60,7 +65,12 @@ export {
 } from './components/ProviderSettings.js';
 export { SearchSettings, type SearchSettingsProps } from './components/SearchSettings.js';
 export { SessionSidebar, type SessionSidebarProps } from './components/SessionSidebar.js';
-export { agentReadout, StatusBar, type StatusBarProps } from './components/StatusBar.js';
+export {
+  agentReadout,
+  StatusBar,
+  type StatusBarPickerRequest,
+  type StatusBarProps,
+} from './components/StatusBar.js';
 export { Toggle, type ToggleProps } from './components/Toggle.js';
 export { ToolCatalogView, type ToolCatalogViewProps } from './components/ToolCatalogView.js';
 export {
@@ -83,8 +93,11 @@ export {
   deleteChipBeforeCaret,
   insertAttachmentAtCaret,
   isAttachmentChipElement,
+  isChipRemoveElement,
+  mergeComposerAttachments,
   mergeComposerRefs,
   paintComposer,
+  removeChipElement,
   serializeComposer,
   setComposerCaret,
   toWireAttachments,

@@ -1,5 +1,6 @@
 import type {
   ApprovalDecision,
+  AskUserAnswer,
   AttachmentRef,
   ChatModeId,
   ContextRef,
@@ -56,6 +57,13 @@ export interface HarnessSessionState {
    * turn resumes and executes the tool.
    */
   decideToolApproval: (approvalId: string, decision: ApprovalDecision) => Promise<void>;
+  /**
+   * Answer an ask-user gate.
+   *
+   * Clears the pending prompt immediately so the form does not linger while the
+   * turn resumes.
+   */
+  answerAskUser: (askId: string, answers: AskUserAnswer[]) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -388,6 +396,26 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     [client, sessionId, reload],
   );
 
+  const answerAskUser = useCallback(
+    async (askId: string, answers: AskUserAnswer[]) => {
+      if (sessionId === null) {
+        return;
+      }
+      setPending((current) =>
+        current === null || current.askUser?.askId !== askId
+          ? current
+          : { ...current, askUser: null },
+      );
+      try {
+        await client.answerAskUser(sessionId, askId, { answers });
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'ask_user_failed');
+        await reload();
+      }
+    },
+    [client, sessionId, reload],
+  );
+
   const setSessionProvider = useCallback(
     async (provider: ProviderOverride | null) => {
       if (sessionId === null) {
@@ -433,6 +461,7 @@ export function useHarnessSession(options: UseHarnessSessionOptions): HarnessSes
     send,
     cancel,
     decideToolApproval,
+    answerAskUser,
     reload,
   };
 }

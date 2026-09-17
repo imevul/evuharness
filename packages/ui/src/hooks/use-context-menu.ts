@@ -30,6 +30,11 @@ export interface UseContextMenuOptions {
   fetchItems: ContextMenuFetcher;
   value: ComposerValue;
   onChange: (next: ComposerValue) => void;
+  /**
+   * Fired when a picked item declares `action`. The trigger span is already
+   * gone; the hook does not insert a chip or a ref.
+   */
+  onAction?: (action: string) => void;
   /** Debounce for keystroke-driven fetches. */
   debounceMs?: number;
 }
@@ -67,7 +72,7 @@ export interface ContextMenuState {
  * human-facing chip label is presentation only and is painted by the composer.
  */
 export function useContextMenu(options: UseContextMenuOptions): ContextMenuState {
-  const { menus, fetchItems, value, onChange, debounceMs = 120 } = options;
+  const { menus, fetchItems, value, onChange, onAction, debounceMs = 120 } = options;
 
   const [path, setPath] = useState<string[]>([]);
   const [nodes, setNodes] = useState<ContextMenuNode[]>([]);
@@ -155,6 +160,21 @@ export function useContextMenu(options: UseContextMenuOptions): ContextMenuState
     (item: ContextMenuItem) => {
       if (match === null || menu === null) return;
 
+      if (item.action !== undefined && item.action !== '') {
+        // Drop the trigger span only. A client action is not a chip, a ref, or a send.
+        const nextText = `${value.text.slice(0, match.start)}${value.text.slice(match.end)}`;
+        onChange({
+          text: nextText,
+          caret: match.start,
+          refs: value.refs,
+          attachments: value.attachments,
+        });
+        setNodes([]);
+        setPath([]);
+        onAction?.(item.action);
+        return;
+      }
+
       const chip = resolveChip({
         item,
         groups: groupsAlongPath(nodes, path),
@@ -199,7 +219,7 @@ export function useContextMenu(options: UseContextMenuOptions): ContextMenuState
       setNodes([]);
       setPath([]);
     },
-    [match, menu, nodes, path, value, onChange],
+    [match, menu, nodes, path, value, onChange, onAction],
   );
 
   const select = useCallback(

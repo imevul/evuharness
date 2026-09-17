@@ -7,7 +7,9 @@ import {
   findItem,
   groupsAlongPath,
   mentionsMenu,
+  modelCommandItem,
   nodesAtPath,
+  planCommandItem,
   resolveChip,
   staticSource,
   walkItems,
@@ -213,6 +215,34 @@ describe('presets', () => {
       effect: 'text',
       emptyQueryBehavior: 'groups',
     });
+  });
+
+  it('ships an optional /model item that is a pick-time action, not a send', async () => {
+    const item = modelCommandItem();
+    expect(item).toMatchObject({
+      kind: 'item',
+      id: 'model',
+      label: 'model',
+      action: 'open-model-picker',
+    });
+
+    const registry = new ContextMenuRegistry([commandsMenu({ sources: [[item]] })]);
+    const response = await registry.listItems('commands');
+    expect(response.nodes).toEqual([item]);
+  });
+
+  it('ships an optional /plan item that is a pick-time action, not a send', async () => {
+    const item = planCommandItem();
+    expect(item).toMatchObject({
+      kind: 'item',
+      id: 'plan',
+      label: 'plan',
+      action: 'switch-to-plan-mode',
+    });
+
+    const registry = new ContextMenuRegistry([commandsMenu({ sources: [[item]] })]);
+    const response = await registry.listItems('commands');
+    expect(response.nodes).toEqual([item]);
   });
 
   it('gives commands the / trigger and a prompt effect', () => {

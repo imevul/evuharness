@@ -1,5 +1,5 @@
-import type { ContextMenuNode } from '@evu/harness-protocol';
-import { nodesAtPath } from '@evu/harness-protocol';
+import type { ContextMenuItem, ContextMenuNode } from '@evu/harness-protocol';
+import { COMPOSER_ACTIONS, nodesAtPath } from '@evu/harness-protocol';
 import type {
   ContextMenuDefinition,
   ContextMenuSource,
@@ -101,6 +101,46 @@ export function mentionsMenu(options: MenuPresetOptions): ContextMenuDefinition 
  * effect is `prompt`: the resolved body merges into the leading system message
  * rather than being sent as a mid-thread system turn.
  */
+/** Catalog id for {@link modelCommandItem}. */
+export const MODEL_COMMAND_ID = 'model';
+
+/**
+ * Optional `/model` command: pick opens the session model picker, and does
+ * not insert a chip or start a turn.
+ *
+ * Hosts that want it drop the item into a `commandsMenu` / `skillsMenu`
+ * source. Hosts that do not include it never advertise the row.
+ */
+export function modelCommandItem(): ContextMenuItem {
+  return {
+    kind: 'item',
+    id: MODEL_COMMAND_ID,
+    label: 'model',
+    hint: 'Choose a model for this chat',
+    action: COMPOSER_ACTIONS.openModelPicker,
+  };
+}
+
+/** Catalog id for {@link planCommandItem}. */
+export const PLAN_COMMAND_ID = 'plan';
+
+/**
+ * Optional `/plan` command: pick switches the draft to plan mode, and does
+ * not insert a chip or start a turn.
+ *
+ * Same opt-in as {@link modelCommandItem}: include it in a `/` source or
+ * omit it.
+ */
+export function planCommandItem(): ContextMenuItem {
+  return {
+    kind: 'item',
+    id: PLAN_COMMAND_ID,
+    label: 'plan',
+    hint: 'Switch to plan mode',
+    action: COMPOSER_ACTIONS.switchToPlanMode,
+  };
+}
+
 export function commandsMenu(options: MenuPresetOptions): ContextMenuDefinition {
   const id = options.id ?? 'commands';
   return {

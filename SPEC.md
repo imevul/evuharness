@@ -116,10 +116,11 @@ scrolling away reveals a jump control.
 
 User turns may carry structured **attachments** (images and files) alongside
 context-menu refs. Attachment chips serialize to stable tokens in the wire text
-plus an `attachments[]` array on the request. Allowlisted images become
-OpenAI-compatible multimodal `image_url` parts on the model thread; non-image
-file text is wrapped as untrusted data. The feature is gated by
-`features.attachments` (default off).
+plus an `attachments[]` array on the request. Chip DOM stores identity only;
+image bytes and file text stay on that array so paint cannot fail on a payload.
+Allowlisted images become OpenAI-compatible multimodal `image_url` parts on the
+model thread; non-image file text is wrapped as untrusted data. The feature is
+gated by `features.attachments` (default off).
 
 Sessions also carry pending gate state, cumulative token counts, and an optional
 workspace scope.
@@ -282,6 +283,14 @@ Picking an item inserts a chip and records a structured reference. At send time
 the menu's resolver decides what that reference does: leave the token inline,
 attach a context block, merge text into the leading system message, or run a
 command before the turn starts.
+
+An item may declare `action` instead. That pick is client-only: the composer
+removes the trigger span, reports the action string, and does not insert a chip
+or start a turn. `modelCommandItem()` is the stock `/model` row
+(`action: open-model-picker`). `planCommandItem()` is the stock `/plan` row
+(`action: switch-to-plan-mode`). Hosts include either in a `/` source if they
+want it; the UI kit opens the session model picker or stages plan mode when
+those actions are wired.
 
 Icons are serializable string tokens, not components, so the same source data
 drives any surface.

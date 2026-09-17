@@ -1,14 +1,15 @@
-import type {
-  AttachmentRef,
-  ChatModeId,
-  ContextMenuDescriptor,
-  ContextRef,
-  HarnessFeaturesSnapshot,
-  HarnessSettings,
-  MemoryEntry,
-  SessionSummary,
-  StatusResponse,
-  ToolCatalogEntry,
+import {
+  type AttachmentRef,
+  type ChatModeId,
+  COMPOSER_ACTIONS,
+  type ContextMenuDescriptor,
+  type ContextRef,
+  type HarnessFeaturesSnapshot,
+  type HarnessSettings,
+  type MemoryEntry,
+  type SessionSummary,
+  type StatusResponse,
+  type ToolCatalogEntry,
 } from '@evu/harness-protocol';
 import {
   AgentSettings,
@@ -56,6 +57,9 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [screen, setScreen] = useState<'chat' | 'settings'>('chat');
   const [bootError, setBootError] = useState<string | null>(null);
+  const [providerPickerRequest, setProviderPickerRequest] = useState<
+    { nonce: number; row: 'model' } | undefined
+  >(undefined);
 
   const refreshSessions = useCallback(async () => {
     const response = await client.listSessions();
@@ -168,29 +172,36 @@ export function App() {
 
   return (
     <div className="layout">
-      <SessionSidebar
-        className="sidebar"
-        sessions={sessions}
-        activeId={activeId}
-        onSelect={(id) => {
-          setActiveId(id);
-          setScreen('chat');
-        }}
-        onCreate={() => void createSession()}
-        onDelete={(id) => void deleteSession(id)}
-      />
+      <div className="sidebar-column">
+        <SessionSidebar
+          className="sidebar"
+          sessions={sessions}
+          activeId={activeId}
+          onSelect={(id) => {
+            setActiveId(id);
+            setScreen('chat');
+          }}
+          onCreate={() => void createSession()}
+          onDelete={(id) => void deleteSession(id)}
+        />
+        <button
+          type="button"
+          className="sidebar-settings"
+          aria-label="Settings"
+          onClick={() => setScreen('settings')}
+        >
+          <SettingsIcon />
+        </button>
+      </div>
 
       <main className="chat">
         <header className="chat-header">
           <span>{session.session?.title ?? 'No session'}</span>
-          <span className="chat-header-actions">
-            {status !== null && !status.providerConfigured && (
+          {status !== null && !status.providerConfigured && (
+            <span className="chat-header-actions">
               <span className="warn">No provider configured</span>
-            )}
-            <button type="button" onClick={() => setScreen('settings')}>
-              Settings
-            </button>
-          </span>
+            </span>
+          )}
         </header>
 
         <Transcript
@@ -218,7 +229,7 @@ export function App() {
               if (activeId !== null) void client.decideModeSwitch(activeId, { approve });
             }}
             onAskUserAnswer={(askId, answers) => {
-              if (activeId !== null) void client.answerAskUser(activeId, askId, { answers });
+              void session.answerAskUser(askId, answers);
             }}
           />
         )}
@@ -234,6 +245,14 @@ export function App() {
           // touching the turn.
           onModeChange={session.setDraftMode}
           onSend={(value) => void send(value)}
+          onAction={(action) => {
+            if (action === COMPOSER_ACTIONS.openModelPicker) {
+              setProviderPickerRequest({ nonce: Date.now(), row: 'model' });
+            }
+            if (action === COMPOSER_ACTIONS.switchToPlanMode) {
+              session.setDraftMode('plan');
+            }
+          }}
           onCancel={() => void session.cancel()}
           turnInProgress={session.turn !== null}
           disabled={activeId === null}
@@ -261,6 +280,7 @@ export function App() {
               }
             : {})}
           onListModels={async (providerId) => (await client.listModels({ providerId })).models}
+          {...(providerPickerRequest === undefined ? {} : { pickerRequest: providerPickerRequest })}
           usage={
             session.session?.usage ?? {
               promptTokensTotal: 0,
@@ -271,6 +291,36 @@ export function App() {
         />
       </main>
     </div>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+      <path
+        d="M15 6 9 12l6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -393,7 +443,8 @@ function SettingsScreen({
     <div className="settings-layout">
       <nav className="settings-sidebar" aria-label="Settings sections">
         <button type="button" className="settings-back" onClick={onBack}>
-          ← Back to chat
+          <BackIcon />
+          Back to chat
         </button>
 
         <h1>Settings</h1>

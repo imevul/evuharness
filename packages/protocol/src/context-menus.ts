@@ -30,10 +30,26 @@ export const ContextMenuItemSchema = z.object({
   keywords: z.array(z.string()).optional(),
   disabled: z.boolean().optional(),
   chip: z.union([z.literal(false), ChipOverrideSchema]).optional(),
+  /**
+   * Pick-time client action. When set, the composer removes the trigger span
+   * and reports the action; it must not insert a chip or send a turn.
+   */
+  action: z.string().min(1).optional(),
   /** Opaque host data, echoed back to the menu resolver at send time. */
   payload: z.record(z.string(), z.unknown()).optional(),
 });
 export type ContextMenuItem = z.infer<typeof ContextMenuItemSchema>;
+
+/**
+ * Well-known composer pick-time actions.
+ *
+ * Hosts may define their own action strings. These are the ones the kit
+ * already knows how to honour when the matching chrome is mounted.
+ */
+export const COMPOSER_ACTIONS = {
+  openModelPicker: 'open-model-picker',
+  switchToPlanMode: 'switch-to-plan-mode',
+} as const;
 
 /**
  * A group of nodes.

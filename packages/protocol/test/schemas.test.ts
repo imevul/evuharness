@@ -87,6 +87,17 @@ describe('context menu nodes', () => {
     expect(parsed).toMatchObject({ chip: false });
   });
 
+  it('accepts a pick-time action so an item can open chrome instead of inserting', () => {
+    const parsed = ContextMenuNodeSchema.parse({
+      kind: 'item',
+      id: 'model',
+      label: 'model',
+      action: 'open-model-picker',
+    });
+
+    expect(parsed).toMatchObject({ action: 'open-model-picker' });
+  });
+
   it('allows a null chip icon to suppress inheritance', () => {
     const parsed = ContextMenuNodeSchema.parse({
       kind: 'item',

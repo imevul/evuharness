@@ -22,6 +22,8 @@
   --accent-ink: #0b1220;
   --warn: #ffb86a;
   --danger: #ff6a6a;
+  --mode-ask: #5ee0a0;
+  --mode-plan: #f0c14b;
   --focus: #8cc2ff;
 
   --space-1: 4px;
@@ -186,13 +188,40 @@ pre {
   height: 100vh;
 }
 
-.sidebar {
+.sidebar-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--panel);
+}
+
+.sidebar {
+  flex: 1;
   padding: var(--space-3);
   overflow-x: hidden;
   overflow-y: auto;
   min-width: 0;
+  min-height: 0;
+}
+
+.sidebar-settings {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin: 0 var(--space-3) var(--space-3);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+}
+
+.sidebar-settings:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .sidebar ul {
@@ -565,34 +594,45 @@ pre {
 
 .chat-composer {
   position: relative;
-  border-top: 1px solid var(--line);
-  padding: var(--space-3) var(--space-4);
+  margin: 0 var(--space-4);
+  padding: 6px var(--space-3);
   display: grid;
-  gap: var(--space-2);
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.chat-composer:focus-within {
+  border-color: var(--line-strong);
 }
 
 [data-harness="composer-input"] {
+  position: relative;
   width: 100%;
-  min-height: 72px;
-  background: var(--panel);
+  min-width: 0;
+  min-height: 24px;
+  max-height: 12rem;
+  background: transparent;
   color: inherit;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-md);
-  padding: var(--space-2) 10px;
+  padding: 4px;
   font: inherit;
+  line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  overflow-y: auto;
   outline: none;
-}
-
-[data-harness="composer-input"]:focus-visible {
-  border-color: var(--accent);
 }
 
 [data-harness="composer-input"][data-empty="true"]::before {
   content: attr(data-placeholder);
   color: var(--muted);
   pointer-events: none;
+  position: absolute;
+  inset: 0;
+  padding: inherit;
 }
 
 [data-harness="composer-actions"] {
@@ -602,35 +642,224 @@ pre {
   gap: var(--space-2);
 }
 
+[data-harness="composer-leading"],
+[data-harness="composer-trailing"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-composer[data-layout="single"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: 4px;
+}
+
+.chat-composer[data-layout="single"] [data-harness="composer-input"] {
+  flex: 1;
+  min-height: 0;
+  padding-block: 2px;
+}
+
+.chat-composer[data-layout="multi"] {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "input input"
+    "leading trailing";
+  gap: 2px;
+}
+
+.chat-composer[data-layout="multi"] [data-harness="composer-input"] {
+  grid-area: input;
+  min-height: 56px;
+  padding: var(--space-2) 4px;
+}
+
+.chat-composer[data-layout="multi"] [data-harness="composer-leading"] {
+  grid-area: leading;
+}
+
+.chat-composer[data-layout="multi"] [data-harness="composer-trailing"] {
+  grid-area: trailing;
+  justify-self: end;
+}
+
+[data-harness="composer-add"] {
+  position: relative;
+}
+
+[data-harness="composer-add-trigger"] {
+  color: var(--muted);
+}
+
+[data-harness="composer-add-menu"] {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  min-width: 260px;
+  max-height: 360px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 40%);
+  z-index: 12;
+  overflow: hidden;
+}
+
+[data-harness="composer-add-search"] {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  font: inherit;
+  outline: none;
+}
+
+[data-harness="composer-add-search"]:focus-visible {
+  outline: none;
+}
+
+[data-harness="composer-add-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+[data-harness="composer-add-item"] {
+  display: grid;
+  grid-template-columns: 1.25em minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  justify-content: stretch;
+  text-align: left;
+  border-color: transparent;
+}
+
+[data-harness="composer-add-item"][data-highlighted="true"] {
+  background: var(--panel-raised);
+}
+
+[data-harness="composer-add-icon"] {
+  box-sizing: border-box;
+  width: 1.25em;
+  max-width: 1.25em;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+[data-harness="composer-add-icon"] svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+[data-harness="composer-add-label"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-harness="composer-add-hint"] {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+[data-harness="composer-add-hint"],
+[data-harness="composer-add-loading"],
+[data-harness="composer-add-empty"] {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+[data-harness="composer-add-loading"],
+[data-harness="composer-add-empty"] {
+  padding: 6px 8px;
+}
+
+[data-harness="composer-add-item"][data-kind="mode"][data-mode="ask"] {
+  color: var(--mode-ask);
+}
+
+[data-harness="composer-add-item"][data-kind="mode"][data-mode="plan"] {
+  color: var(--mode-plan);
+}
+
 [data-harness="composer-attach"] {
-  margin-right: auto;
   display: inline-flex;
   align-items: center;
   color: var(--muted);
   padding: 6px 8px;
 }
 
-[data-harness="composer-attach"]:hover:not(:disabled) {
-  color: var(--text);
-}
-
-/*
- * Capitalized in CSS, not in the label: the mode id is a protocol value and the
- * composer hands it through verbatim, so casing is the host's business.
- */
 [data-harness="mode-chip"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  padding: 0 4px 0 8px;
   color: var(--accent);
-  border-color: var(--line-strong);
-  text-transform: capitalize;
 }
 
-/* Send is the one action this row exists for; cancel takes over mid-turn. */
+[data-harness="mode-chip"][data-mode="ask"] {
+  color: var(--mode-ask);
+  border-color: color-mix(in srgb, var(--mode-ask) 45%, var(--line));
+  background: color-mix(in srgb, var(--mode-ask) 12%, transparent);
+}
+
+[data-harness="mode-chip"][data-mode="plan"] {
+  color: var(--mode-plan);
+  border-color: color-mix(in srgb, var(--mode-plan) 45%, var(--line));
+  background: color-mix(in srgb, var(--mode-plan) 12%, transparent);
+}
+
+[data-harness="mode-chip-label"],
+[data-harness="mode-chip-clear"] {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 4px;
+}
+
+[data-harness="mode-chip-label"],
+[data-chrome="bar"] [data-harness="mode-chip"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-harness="mode-chip-label"]:hover:not(:disabled),
+[data-harness="mode-chip-clear"]:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+}
+
+[data-harness="mode-chip-clear"] {
+  padding: 2px 6px 2px 2px;
+  color: var(--muted);
+}
+
 [data-harness="composer-send"] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
-  font-weight: 600;
 }
 
 [data-harness="composer-send"]:hover:not(:disabled) {
@@ -641,6 +870,18 @@ pre {
 [data-harness="composer-cancel"] {
   border-color: var(--warn);
   color: var(--warn);
+}
+
+[data-chrome="inlaid"] [data-harness="composer-add-trigger"],
+[data-chrome="inlaid"] [data-harness="composer-send"],
+[data-chrome="inlaid"] [data-harness="composer-cancel"] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
 }
 
 [data-harness="transcript-attachments"] {
@@ -693,6 +934,21 @@ pre {
   font-size: 0.9em;
 }
 
+[data-harness="chip-remove"] {
+  margin: 0;
+  padding: 0 1px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+[data-harness="chip-remove"]:hover {
+  color: var(--text);
+}
+
 /*
  * Anchored above the composer rather than at the caret. Caret-tracking needs
  * measurement the kit does not do, and for a demo the fixed position is honest
@@ -716,8 +972,9 @@ pre {
 }
 
 [data-harness="context-menu"] button {
-  display: flex;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  column-gap: var(--space-2);
   align-items: baseline;
   border-color: transparent;
   text-align: left;
@@ -727,7 +984,18 @@ pre {
   background: var(--panel-raised);
 }
 
+[data-harness="context-menu-label"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 [data-harness="context-menu-hint"] {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 0.85em;
 }
@@ -751,7 +1019,7 @@ pre {
   display: flex;
   gap: var(--space-4);
   align-items: center;
-  padding: 6px var(--space-4) var(--space-3);
+  padding: 8px var(--space-5) var(--space-3);
   color: var(--muted);
   font-size: 0.85em;
 }
@@ -805,13 +1073,6 @@ pre {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
   box-shadow: 0 16px 40px rgb(0 0 0 / 45%);
-}
-
-[data-harness="status-provider-hint"] {
-  margin: 0;
-  max-width: 17rem;
-  padding: 0 var(--space-2) var(--space-1);
-  color: var(--muted);
 }
 
 /* Provider menu
@@ -945,6 +1206,7 @@ pre {
 [data-harness="status-context"] {
   position: relative;
   display: inline-flex;
+  margin-left: auto;
 }
 
 [data-harness="status-donut"] {
@@ -961,8 +1223,7 @@ pre {
 [data-harness="status-tooltip"] {
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  right: 0;
   min-width: max-content;
   padding: 6px var(--space-2);
   border: 1px solid var(--line);
@@ -1177,6 +1438,9 @@ pre {
 
 .settings-back {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .settings-sidebar ul {

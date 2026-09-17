@@ -74,20 +74,28 @@ direction, most specific first:
 - **Label:** the chip override, then the item label.
 - **Hint** never appears in a chip. It is picker-only disambiguation text.
 - **Tone** is chip-only styling.
+- **Remove** is a trailing `chip-remove` control on every composer chip
+  (mentions, commands, attachments). It deletes the chip; it is not painted
+  on transcript chips, which are already sent.
 
 Icons are string tokens. The host supplies the token-to-component map, which is
 what lets a terminal surface map the same tokens to glyphs.
 
 Not every item becomes a chip: a menu or item may insert plain text instead, so
-snippet and emoji style menus work without pretending to be references.
+snippet and emoji style menus work without pretending to be references. An item
+with `action` does not insert at all: the trigger is removed and `Composer`
+reports `onAction`. That is how `/model` opens the status-bar model flyout
+and `/plan` stages plan mode, without sending a turn.
 
 ### Attachments
 
 When `features.attachments` is on, the composer exposes an Attach control. Picked
 images and files become the same chip chrome as context-menu picks, with wire
 tokens like `[image:shot.png]` / `[file:notes.txt]` plus a structured
-`attachments[]` array on send. Transcript rows may echo attachment chips (name
-and kind) without re-embedding large data URLs.
+`attachments[]` array on send. Chip DOM only stores identity (id, name, kind);
+image data URLs and file text stay on composer state so paint cannot choke on a
+payload. Transcript rows may echo attachment chips (name and kind) without
+re-embedding those payloads.
 
 ## Gates
 
@@ -112,6 +120,29 @@ of the kit it ships no styles, only `data-harness` hooks.
 person reads the transcript behind it and while other work is pending, which a
 dialog stack cannot express. Gates stay inline; dialogs are for editing
 something, where losing the surrounding view for a moment is the point.
+
+## Composer chrome
+
+The default chrome is **inlaid**: a `+` add menu, a dismissible mode chip next
+to it, and icon send/stop on the trailing edge. A single-line draft sits
+between those controls. A wrapped or multi-line draft stacks the field above
+the button row and caps the field at `12rem` with overflow. A chip on one
+line stays single: chip chrome is taller than the text line, and a
+contenteditable caret break after a chip is not a second line. `agent` is
+unmarked — the chip is hidden until the draft is ask or plan. The chip shows
+the same icon as the add menu and a title-cased label. Ask reads green, plan
+yellow, in the demo stylesheet. Pass `chrome="bar"` for the original
+under-editor row. `trailingActions` is the slot a later voice control would
+occupy.
+
+The add menu opens with a focused search field. Empty query lists modes,
+attach, and catalog triggers as icon + label rows. The leading mark is a
+short glyph (mode SVG, attach paperclip, or the catalog trigger). Long
+icon tokens stay off the row so they cannot paint over the label. Typing
+filters those rows and fetches matching items from each catalog (commands,
+mentions, and any host menu) through the same `fetchItems` the `@` / `/`
+popup uses. A category row still inserts that menu's trigger; a hit inserts
+the chip (or fires `onAction`) at the caret.
 
 ## Modes
 
@@ -143,7 +174,7 @@ panel above the composer was permanent chrome restating one line of text.
 popover over `ProviderMenu`; without those props it stays display-only. Only
 `active` provider profiles appear in that picker. When `features.agents` is on,
 the bar also offers an agent dropdown: None uses no agent, and a pick pins one
-agent on the session.
+agent on the session. The context donut sits at the trailing edge of the bar.
 
 `ProviderMenu` is rows, not stacked selects: Provider, Model, Effort, and a
 read-only Context, each stating its current value in place so the common case —
@@ -170,7 +201,8 @@ two override scopes on one screen, identical in appearance and both reading
 Settings is a screen, not a panel. It owns the window and carries its own sidebar
 of sections, because a settings pane squeezed beside the session list gives every
 section a column too narrow to read and hides the rest of them below the fold.
-The demo's sidebar holds `Back to chat` and one entry per section with a one-line
+The demo opens Settings from a gear at the bottom of the session list. The
+settings sidebar holds `Back to chat` and one entry per section with a one-line
 hint of what lives there; the section list and its layout belong to the host, not
 to the kit.
 
