@@ -73,6 +73,9 @@ splits, or reschedules a roadmap line, record that in the same session.
 ## Publishing
 
 Registry publishing is off. The only valid release channel is a GitHub Release.
+Release assets are `file:`-ready tarballs (`scripts/pack-release.mjs`): an
+extracted package tree plus per-package `*.tgz` files whose `workspace:*`
+specs do not point at a registry.
 
 Every manifest stays `"private": true` at version `0.0.0`, no manifest declares
 `publishConfig`, and no workflow references a registry credential.

@@ -11,6 +11,37 @@ prompts, and the wire protocol.
 There is no registry publish. Consume a local checkout (`workspace:` or `file:`)
 or a GitHub Release asset. Every package stays private at `0.0.0`.
 
+### Release tarballs
+
+Tag `v*` (or run the Release workflow against an existing tag). The workflow
+verifies the tree, then uploads:
+
+- `evuharness-packages.tgz` — extracted package tree for offline `file:` installs
+- `evu-harness-*.tgz` — one npm-compatible tarball per workspace package
+- `manifest.json` — names and suggested `file:` specs
+
+`workspace:*` is rewritten before packing. In the extracted tree it becomes
+`file:../<package-dir>`. On the individual tarballs it becomes that release's
+asset URL, so a single `file:` / URL dependency can resolve sibling `@evu/*`
+packages without a registry.
+
+Vendored install after downloading `evuharness-packages.tgz`:
+
+```json
+{
+  "dependencies": {
+    "@evu/harness-protocol": "file:vendor/evuharness/packages/protocol",
+    "@evu/harness-core": "file:vendor/evuharness/packages/core",
+    "@evu/harness-server": "file:vendor/evuharness/packages/server",
+    "@evu/harness-ui": "file:vendor/evuharness/packages/ui"
+  }
+}
+```
+
+Add sqlite or postgres the same way when the host needs those stores. Peer
+dependencies (`react`, `hono`) stay the host's to install. A local pack without
+a tag is `make pack-release` (writes `dist-release/`).
+
 ## Two modes
 
 | | Parts, custom UI | Full demo surface |

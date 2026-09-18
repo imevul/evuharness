@@ -54,16 +54,14 @@ jobs:
       - name: Verify
         run: pnpm run verify
 
-      # Tarballs are the registry-free consumption path: a consumer depends on a
-      # release asset URL, or on a local checkout.
+      # Tarballs are the registry-free consumption path. Workspace specs are
+      # rewritten so a host can `file:` a tarball or the extracted package tree
+      # without hitting a registry.
       - name: Pack workspace packages
-        run: |
-          mkdir -p dist-artifacts
-          for pkg in packages/*/; do
-            [ -f "$pkg/package.json" ] || continue
-            pnpm pack --pack-destination "$PWD/dist-artifacts" --dir "$pkg"
-          done
-          ls -l dist-artifacts
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/pack-release.mjs
 
       - name: Resolve tag
         id: resolve
@@ -74,11 +72,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
+          assets=(
+            dist-release/tarballs/*.tgz
+            dist-release/evuharness-packages.tgz
+            dist-release/manifest.json
+          )
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist-artifacts/* --clobber
+            gh release upload "$TAG" "${assets[@]}" --clobber
           else
             gh release create "$TAG" \
               --title "$TAG" \
-              --generate-notes \
-              dist-artifacts/*
+              --notes-file dist-release/RELEASE-NOTES.md \
+              "${assets[@]}"
           fi

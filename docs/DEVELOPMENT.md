@@ -49,6 +49,10 @@ make verify-dev  # verify + validate the dev compose config
 `make build` drives TypeScript project references, so it also proves the package
 dependency graph is acyclic and correctly declared.
 
+`make pack-release` builds, then stages `file:`-ready artifacts under
+`dist-release/` (gitignored). The Release workflow uploads those artifacts to a
+GitHub Release. It does not publish to a registry.
+
 ## Guard rails
 
 Three checks run inside `make lint` and are not optional:
@@ -147,7 +151,8 @@ Vitest runs from the repo root with workspace aliases resolved to package
 sources, so tests do not need a build step first.
 
 - Node environment by default; `packages/ui/test/**` runs in jsdom.
-- Place tests in `<package>/test/**/*.test.ts`.
+- Place tests in `<package>/test/**/*.test.ts`. Script tests live in
+  `scripts/test/**/*.test.ts`.
 - Postgres store tests skip unless `EVUHARNESS_TEST_DATABASE_URL` is set. CI
   sets it against a service container.
 

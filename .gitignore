@@ -25,6 +25,8 @@ node_modules/
 
 # Build output
 dist/
+dist-release/
+dist-artifacts/
 build/
 *.tsbuildinfo
 .vite/

@@ -79,7 +79,11 @@ providers without modifying the turn loop.
 ## Releases
 
 EvuHarness releases through GitHub Releases only. Packages are not published to a
-registry; consume a release asset or a local checkout.
+registry. A `v*` tag (or a manual Release workflow run) uploads `file:`-ready
+tarballs: extract `evuharness-packages.tgz` and depend on
+`file:vendor/evuharness/packages/<name>`, or `file:` a single `evu-harness-*.tgz`
+and let sibling `@evu/*` specs resolve to the other assets on that release.
+See [`docs/INTEGRATION.md`](./docs/INTEGRATION.md).
 
 ## License
 

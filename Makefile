@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 .PHONY: help install dev dev-native dev-native-stop up down build lint typecheck test test-coverage smoke verify verify-dev \
-	public-tree-scan docs-check release-guard internal-status fetch-internal docker-lint
+	public-tree-scan docs-check release-guard pack-release internal-status fetch-internal docker-lint
 
 help: ## Show available targets
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -59,6 +59,9 @@ docs-check: ## Validate relative links in tracked docs
 release-guard: ## Fail if registry publishing was reintroduced
 	bash scripts/release-guard.sh
 	bash scripts/test-release-guard.sh
+
+pack-release: build ## Stage file: / GitHub Release tarballs under dist-release/
+	node scripts/pack-release.mjs
 
 docker-lint: ## Lint Dockerfiles with droast
 	droast apps/api/Dockerfile apps/web/Dockerfile

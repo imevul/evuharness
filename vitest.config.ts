@@ -43,7 +43,11 @@ export default defineConfig({
           // A single `*` at the package level, not `**`. A workspace package's
           // `node_modules/@evu/*` are symlinks back to sibling packages, so a
           // recursive glob here collects every sibling's tests once per dependent.
-          include: ['packages/*/test/**/*.test.{ts,tsx}', 'apps/*/test/**/*.test.{ts,tsx}'],
+          include: [
+            'packages/*/test/**/*.test.{ts,tsx}',
+            'apps/*/test/**/*.test.{ts,tsx}',
+            'scripts/test/**/*.test.ts',
+          ],
           // Setting `exclude` replaces Vitest's defaults rather than adding to them,
           // so `node_modules` has to be restated or it comes back into scope.
           exclude: ['**/node_modules/**', '**/dist/**', 'packages/ui/**'],

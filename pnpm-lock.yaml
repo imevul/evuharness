@@ -140,12 +140,13 @@ importers:
       '@evu/harness-protocol':
         specifier: workspace:*
         version: link:../protocol
-      hono:
-        specifier: ^4.10.4
-        version: 4.13.7
       zod:
         specifier: ^4.1.13
         version: 4.6.5
+    devDependencies:
+      hono:
+        specifier: ^4.10.4
+        version: 4.13.7
 
   packages/sqlite:
     dependencies:

@@ -25,7 +25,12 @@
   "dependencies": {
     "@evu/harness-core": "workspace:*",
     "@evu/harness-protocol": "workspace:*",
-    "hono": "^4.10.4",
     "zod": "^4.1.13"
+  },
+  "peerDependencies": {
+    "hono": "^4.10.4"
+  },
+  "devDependencies": {
+    "hono": "^4.10.4"
   }
 }
