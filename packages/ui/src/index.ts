@@ -37,6 +37,12 @@ export { McpSettings, type McpSettingsProps } from './components/McpSettings.js'
 export { MemorySettings, type MemorySettingsProps } from './components/MemorySettings.js';
 export { Modal, type ModalProps } from './components/Modal.js';
 export {
+  ModeGlyph,
+  type ModeGlyphRenderer,
+  resolveModeGlyph,
+  titleCaseMode,
+} from './components/ModeGlyph.js';
+export {
   ModelPickerField,
   type ModelPickerFieldProps,
 } from './components/ModelPickerField.js';

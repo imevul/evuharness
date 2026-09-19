@@ -1,3 +1,20 @@
+import type { ReactNode } from 'react';
+
+/**
+ * A host's mark for a mode.
+ *
+ * `undefined` means "use the built-in glyph", so a host adding one custom mode
+ * need not redraw the stock three. `null` is distinct and means "draw nothing",
+ * which a host may genuinely want for a mode it labels by text alone.
+ */
+export type ModeGlyphRenderer = (mode: string) => ReactNode;
+
+/** Resolve a mode's mark, preferring the host's renderer over the built-in. */
+export function resolveModeGlyph(mode: string, render?: ModeGlyphRenderer): ReactNode {
+  const custom = render?.(mode);
+  return custom === undefined ? <ModeGlyph mode={mode} /> : custom;
+}
+
 export function titleCaseMode(value: string): string {
   const first = value[0];
   return first === undefined ? value : `${first.toUpperCase()}${value.slice(1)}`;

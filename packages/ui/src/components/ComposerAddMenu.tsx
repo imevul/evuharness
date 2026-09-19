@@ -15,13 +15,15 @@ import {
   matchesAddQuery,
 } from '../composer/add-menu.js';
 import type { ContextMenuFetcher } from '../hooks/use-context-menu.js';
-import { ModeGlyph, titleCaseMode } from './ModeGlyph.js';
+import { type ModeGlyphRenderer, resolveModeGlyph, titleCaseMode } from './ModeGlyph.js';
 
 export interface ComposerAddMenuProps {
   menus: readonly ContextMenuDescriptor[];
   fetchItems: ContextMenuFetcher;
   debounceMs: number;
   modes: readonly ChatModeId[];
+  /** Forwarded from `ComposerProps`, so mode rows match the mode chip. */
+  renderModeGlyph?: ModeGlyphRenderer | undefined;
   attachmentsEnabled: boolean;
   attachLabel: ReactNode;
   onMode: (mode: ChatModeId) => void;
@@ -46,6 +48,7 @@ export function ComposerAddMenu(props: ComposerAddMenuProps) {
     fetchItems,
     debounceMs,
     modes,
+    renderModeGlyph,
     attachmentsEnabled,
     attachLabel,
     onMode,
@@ -218,15 +221,13 @@ export function ComposerAddMenu(props: ComposerAddMenuProps) {
             onClick={() => activate(row)}
           >
             <span data-harness="composer-add-icon" aria-hidden="true">
-              {row.kind === 'mode' ? (
-                <ModeGlyph mode={row.mode} />
-              ) : row.kind === 'attach' ? (
-                attachIcon
-              ) : row.kind === 'menu' ? (
-                catalogMark(row.menu.icon, row.menu.trigger)
-              ) : (
-                catalogMark(row.hit.item.icon ?? row.hit.menu.icon, row.hit.menu.trigger)
-              )}
+              {row.kind === 'mode'
+                ? resolveModeGlyph(row.mode, renderModeGlyph)
+                : row.kind === 'attach'
+                  ? attachIcon
+                  : row.kind === 'menu'
+                    ? catalogMark(row.menu.icon, row.menu.trigger)
+                    : catalogMark(row.hit.item.icon ?? row.hit.menu.icon, row.hit.menu.trigger)}
             </span>
             <span data-harness="composer-add-label">{row.label}</span>
             {row.kind === 'item' && row.hint !== undefined ? (

@@ -39,7 +39,7 @@ import {
 import { type ContextMenuFetcher, useContextMenu } from '../hooks/use-context-menu.js';
 import { ComposerAddMenu } from './ComposerAddMenu.js';
 import { ContextMenuPopup } from './ContextMenuPopup.js';
-import { ModeGlyph, titleCaseMode } from './ModeGlyph.js';
+import { resolveModeGlyph, titleCaseMode } from './ModeGlyph.js';
 
 export interface ComposerProps {
   menus: readonly ContextMenuDescriptor[];
@@ -93,6 +93,18 @@ export interface ComposerProps {
    */
   unmarkedMode?: ChatModeId;
   /**
+   * Mark for a mode, in the mode chip and the add menu's mode rows.
+   *
+   * Mode ids are open strings so hosts can register their own, but the built-in
+   * glyphs only cover `ask`, `plan`, and `agent` — anything else falls back to
+   * its first letter in a bare span. That is a visible wart next to three
+   * drawn marks, and a host cannot fix it without reimplementing the composer.
+   *
+   * Return `undefined` to use the built-in glyph, so a host supplying a mark
+   * for one custom mode does not have to redraw the stock three.
+   */
+  renderModeGlyph?: (mode: ChatModeId) => ReactNode;
+  /**
    * Extra trailing controls, inlaid before send/stop. Voice belongs here later.
    */
   trailingActions?: ReactNode;
@@ -145,6 +157,7 @@ export function Composer(props: ComposerProps) {
     attachLabel = 'Attach',
     chrome = 'inlaid',
     unmarkedMode = 'agent',
+    renderModeGlyph,
     trailingActions,
     addLabel = '+',
     sendLabel,
@@ -634,6 +647,7 @@ export function Composer(props: ComposerProps) {
               fetchItems={fetchItems}
               debounceMs={menuDebounceMs ?? 120}
               modes={modes}
+              renderModeGlyph={renderModeGlyph}
               attachmentsEnabled={attachmentsEnabled}
               attachLabel={attachLabel}
               onMode={onAddMode}
@@ -664,7 +678,7 @@ export function Composer(props: ComposerProps) {
               disabled={disabled}
               onClick={cycleMarkedMode}
             >
-              <ModeGlyph mode={mode} />
+              {resolveModeGlyph(mode, renderModeGlyph)}
               {titleCaseMode(mode)}
             </button>
             <button
@@ -679,7 +693,7 @@ export function Composer(props: ComposerProps) {
           </span>
         ) : (
           <button type="button" data-harness="mode-chip" onClick={cycleMode} disabled={disabled}>
-            <ModeGlyph mode={mode} />
+            {resolveModeGlyph(mode, renderModeGlyph)}
             {titleCaseMode(mode)}
           </button>
         )

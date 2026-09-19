@@ -32,13 +32,7 @@ export interface TranscriptProps {
  * thinking, progress notes, and tools into one "Worked for" disclosure. The latest
  * turn and the live turn keep that disclosure open; older turns stay collapsed.
  */
-export function Transcript({
-  rows,
-  turn = null,
-  className,
-  afterRow,
-  afterTurn,
-}: TranscriptProps) {
+export function Transcript({ rows, turn = null, className, afterRow, afterTurn }: TranscriptProps) {
   const latestAssistant = latestAssistantIndex(rows, turn !== null);
   const { scrollerRef, showJump, jumpToLatest } = useStickToBottom(rows, turn);
 
