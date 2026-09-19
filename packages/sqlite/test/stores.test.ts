@@ -67,6 +67,59 @@ describe('session persistence', () => {
     expect((await sessions.get(SESSION))?.provider).toEqual(original.provider);
   });
 
+  /**
+   * Compaction is the reason this matters most. It is a rolling cursor over a
+   * thread that only grows, so dropping it on reload does not fail — it
+   * silently re-sends the whole history to the model on the next turn, which
+   * looks like a cost and latency problem rather than a persistence bug.
+   */
+  it('round-trips the compaction cursor', async () => {
+    const original = {
+      ...record(),
+      compaction: {
+        summary: 'The courier reached the border.',
+        throughIndex: 12,
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      },
+    };
+    await sessions.upsert(original);
+    expect((await sessions.get(SESSION))?.compaction).toEqual(original.compaction);
+  });
+
+  it('round-trips the pinned agent', async () => {
+    const original = { ...record(), agentId: 'agent-editor' };
+    await sessions.upsert(original);
+    expect((await sessions.get(SESSION))?.agentId).toBe('agent-editor');
+  });
+
+  it('leaves compaction and agentId unset when the record has neither', async () => {
+    await sessions.upsert(record());
+    const loaded = await sessions.get(SESSION);
+
+    expect(loaded).not.toHaveProperty('compaction');
+    expect(loaded).not.toHaveProperty('agentId');
+  });
+
+  /**
+   * The whole record, not field by field. A payload interface that omits a
+   * field type-checks perfectly and drops it at runtime, so the guard has to be
+   * an assertion that fails when anything at all goes missing.
+   */
+  it('round-trips a fully populated session without losing a field', async () => {
+    const original = {
+      ...record(SESSION, 'agent', WORKSPACE),
+      messages: [{ role: 'user' as const, content: 'hello' }],
+      transcript: [{ kind: 'user' as const, text: 'hello' }],
+      usage: { promptTokensTotal: 12, completionTokensTotal: 5, lastPromptTokens: 12 },
+      provider: { providerId: 'cloud', model: 'bigger', effort: 'high' as const },
+      agentId: 'agent-editor',
+      compaction: { summary: 's', throughIndex: 3, updatedAt: '2026-01-03T00:00:00.000Z' },
+    };
+
+    await sessions.upsert(original);
+    expect(await sessions.get(SESSION)).toEqual(original);
+  });
+
   it('returns null for a missing session', async () => {
     expect(await sessions.get('nope')).toBeNull();
   });

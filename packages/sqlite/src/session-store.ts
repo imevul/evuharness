@@ -24,6 +24,8 @@ interface SessionPayload {
   transcript: SessionRecord['transcript'];
   pending: SessionRecord['pending'];
   provider?: SessionRecord['provider'];
+  agentId?: SessionRecord['agentId'];
+  compaction?: SessionRecord['compaction'];
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -45,6 +47,8 @@ function rowToRecord(row: SessionRow): SessionRecord {
     },
     pending: payload.pending,
     ...(payload.provider === undefined ? {} : { provider: payload.provider }),
+    ...(payload.agentId === undefined ? {} : { agentId: payload.agentId }),
+    ...(payload.compaction === undefined ? {} : { compaction: payload.compaction }),
   };
 }
 
@@ -94,6 +98,8 @@ export class SqliteSessionStore implements SessionStore {
       transcript: record.transcript,
       pending: record.pending,
       ...(record.provider === undefined ? {} : { provider: record.provider }),
+      ...(record.agentId === undefined ? {} : { agentId: record.agentId }),
+      ...(record.compaction === undefined ? {} : { compaction: record.compaction }),
     };
 
     this.db
